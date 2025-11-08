@@ -8,22 +8,24 @@ Uses [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher), specifically t
 
 ### Put the settings in place
 
-`settings.json` must be copied to `%LOCALAPPDATA%\min-ed-launcher\settings.json`. It ensures log files of the correct CMDR are parsed.
+`settings[-steam|-frontier].json` must be copied to `%LOCALAPPDATA%\min-ed-launcher\settings.json`. It ensures log files of the correct CMDR are parsed.
+
+The `%LOCALAPPDATA%`refers to a directory *specific* to the CMDR - which enables us to launch programs (EDMC, VoiceAttack, EDDI, ED Discovery, ...) specific to that CMDR.
+
+So, using the Windows usernames of the example scripts, the (maybe same) `settings.json`file would end up in three directories.
+
+- `C:\Users\maincmdr\AppData\Local\min-ed-launcher\settings.json`for the Main CMDR,
+- `C:\Users\alt1\AppData\Local\min-ed-launcher\settings.json`for the first alt CMDR,
+- `C:\Users\alt2\AppData\Local\min-ed-launcher\settings.json`for the second alt CMDR.
+
+Use the proper template depending on the type of account the CMDR uses: the only difference is that Steam installations require the `"gamelocation"`key in the JSON.
 
 ### Adapt your various Commanders
 
-Create one PowerShell script for each of your commanders. Launch it once manually, do the authentication via Frontier website. The credentials will be stored for later use.
+Adjust the PowerShell scripts for each of your commanders. Launch it once manually, do the authentication via Frontier website. The credentials will be stored for later use.
 
-## Create a release zip
+To be verified: the PowerShell must be run as Administrator?
 
-Use PowerShell (Windows PowerShell 5 or PowerShell 7+) from the repo root:
+### Creating proper shortcuts
 
-```powershell
-pwsh ./create-release.ps1 -Version v1.0.0
-```
-
-The script zips the repository (skipping `.git` and previous archives) into `./dist/EDMultiCMDR-v1.0.0.zip`. Omit `-Version` to fall back to a timestamped filename.
-
-### Automated GitHub release
-
-Pushing a tag that starts with `v` (for example `v1.0.0`) triggers the `Publish Release Zip` GitHub Action. It runs `create-release.ps1 -Version <tag>` on `windows-latest` and attaches the generated `dist/EDMultiCMDR-<tag>.zip` to the GitHub release created from that tag.
+Will be handled as soon as the concept works.
