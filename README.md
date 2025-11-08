@@ -29,3 +29,19 @@ To be verified: the PowerShell must be run as Administrator?
 ### Creating proper shortcuts
 
 Will be handled as soon as the concept works.
+
+We must include the intended profiles when starting the launcher(s) by using the `/frontier ...` directive.
+
+**Shortcut for Windows**
+Create a shortcut with "Target": `cmd /c "MinEdLauncher.exe %command% /frontier <put your profile-name here> /autorun /autoquit"`
+
+**Shortcut for Steam**
+Follow [these instructions](https://github.com/rfvgyhn/min-ed-launcher?tab=readme-ov-file#steam) to adapt the Steam launcher command. For the launcher command, use `cmd /c "MinEdLauncher.exe %command% /frontier <put your profile-name here> /autorun /autoquit"`
+
+Create a shortcut with "Target": `"C:\Program Files (x86)\Steam\Steam.exe" -gameidlaunch 359320 /edo`
+
+## Default E:D installation directories
+
+- **Frontier launcher, global installation**: `C:\Program Files (x86)\Frontier\Products\elite-dangerous-64\`
+- **Frontier, user-specific installation**: `C:\Program Files (x86)\Steam\steamapps\common\Elite Dangerous\Products\elite-dangerous-64\`
+- **Steam**: `C:\Program Files (x86)\Steam\steamapps\common\Elite Dangerous\Products\elite-dangerous-64\`
