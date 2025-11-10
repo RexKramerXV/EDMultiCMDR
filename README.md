@@ -63,7 +63,7 @@ Notes and security considerations
 2. Create a Windows shortcut for easy access:
    - Right-click the Desktop (or Start menu folder) → New → Shortcut.
    - For the "Target" field use an invocation like:
-     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\path\to\EDMultiCMDR\EDMultiCMDR.ps1"
+     `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\path\to\EDMultiCMDR\EDMultiCMDR.ps1"`
    - Optionally set "Start in" to the install folder.
 
 ## How to launch additional processes
@@ -149,7 +149,7 @@ $steamProc = Start-Process -FilePath "C:\Program Files (x86)\Steam\steam.exe" `
 
 ## Debug output
 
-Note: the script emits diagnostic output via PowerShell's Write-Verbose/Write-Debug. To see debugging details when running the script, invoke it with -Verbose (or -Debug) e.g.:
+Note: the script emits diagnostic output via PowerShell's Write-Verbose. To see debugging details when running the script, invoke it with -Verbose e.g.:
 
 ```powershell
 powershell -File .\EDMultiCMDR.ps1 -Verbose

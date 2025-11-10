@@ -1,8 +1,8 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param()
 
 # Greeting shown at script start
-Write-Host "`nEDMultiCMDR — multi-CMDR launch helper"
+Write-Host "`nEDMultiCMDR - multi-CMDR launch helper"
 Write-Host "======================================`n"
 
 function Initialize-CredentialStore {
@@ -59,9 +59,9 @@ function New-EDMultiAccounts {
 function Select-Accounts([array]$accounts) {
     Write-Verbose ("Select-Accounts invoked; accounts.Count = {0}" -f $accounts.Count)
     Write-Host "Available accounts:"
-    for ($i=0; $i -lt $accounts.Count; $i++) {
+    for ($i = 0; $i -lt $accounts.Count; $i++) {
         $a = $accounts[$i]
-        Write-Host ("[{0}] {1} ({2})" -f ($i+1), $a.username, $a.client)
+        Write-Host ("[{0}] {1} ({2})" -f ($i + 1), $a.username, $a.client)
     }
 
     while ($true) {
@@ -69,69 +69,68 @@ function Select-Accounts([array]$accounts) {
         Write-Verbose ("User input for selection: '{0}'" -f $sel)
         if ([string]::IsNullOrWhiteSpace($sel)) {
             Write-Verbose "No input given; defaulting to all accounts."
-            return [int[]](0..($accounts.Count-1))
+            return [int[]](0..($accounts.Count - 1))
         }
 
         $selTrim = $sel.Trim()
         Write-Verbose ("Trimmed input: '{0}'" -f $selTrim)
         if ($selTrim.ToLowerInvariant() -eq 'all') {
             Write-Verbose "User entered 'all' (case-insensitive). Returning all indices."
-            return [int[]](0..($accounts.Count-1))
+            return [int[]](0..($accounts.Count - 1))
         }
 
         $idxSet = New-Object System.Collections.Generic.HashSet[int]
 
-        # Extract tokens that are either a single number or a range like "2-5"
-        $matches = [regex]::Matches($selTrim, '\d+(?:\s*-\s*\d+)?')
-        Write-Verbose ("Found {0} token(s) via regex." -f $matches.Count)
+        # Split on commas; accept tokens like "2" or "2-5". Tolerate spaces.
+        $tokens = $selTrim -split '\s*,\s*' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        Write-Verbose ("Parsed tokens: {0}" -f ($tokens -join ', '))
 
-        foreach ($m in $matches) {
-            $tok = $m.Value.Trim()
-            if ($tok -match '^(?<a>\d+)\s*-\s*(?<b>\d+)$') {
+        foreach ($tok in $tokens) {
+            $t = $tok.Trim()
+            if ($t -match '^(?<a>\d+)\s*-\s*(?<b>\d+)$') {
+                # range token (1-based input)
                 try {
-                    $a = [int]::Parse($Matches['a'], [System.Globalization.CultureInfo]::InvariantCulture) - 1
-                    $b = [int]::Parse($Matches['b'], [System.Globalization.CultureInfo]::InvariantCulture) - 1
+                    $a = [int]$Matches['a'] - 1
+                    $b = [int]$Matches['b'] - 1
                 } catch {
-                    Write-Warning "Could not parse range token '$tok'."
-                    Write-Verbose ("Failed parsing range token: '{0}'" -f $tok)
+                    Write-Warning "Could not parse range token '$t'."
                     continue
                 }
                 if ($a -gt $b) {
-                    Write-Warning "Ignored range '{0}' because start > end." -f $tok
+                    Write-Warning "Ignored range '$t' because start > end."
                     continue
                 }
                 for ($n = $a; $n -le $b; $n++) {
                     if ($n -ge 0 -and $n -lt $accounts.Count) { $idxSet.Add($n) | Out-Null }
                 }
-                Write-Verbose ("Token '{0}' interpreted as range -> {1}-{2} (0-based {3}-{4})" -f $tok, $Matches['a'], $Matches['b'], $a, $b)
-            } else {
-                # single number
+                Write-Verbose ("Interpreted range token '{0}' -> {1}-{2}" -f $t, $a, $b)
+            } elseif ($t -match '^\d+$') {
+                # single number token (1-based input)
                 try {
-                    $n = [int]::Parse($tok, [System.Globalization.CultureInfo]::InvariantCulture) - 1
+                    $n = [int]$t - 1
                 } catch {
-                    Write-Warning "Could not parse numeric token '$tok'."
-                    Write-Verbose ("Failed parsing numeric token: '{0}'" -f $tok)
+                    Write-Warning "Could not parse numeric token '$t'."
                     continue
                 }
                 if ($n -ge 0 -and $n -lt $accounts.Count) {
                     $idxSet.Add($n) | Out-Null
-                    Write-Verbose ("Token '{0}' interpreted as single index -> {1}" -f $tok, $n)
+                    Write-Verbose ("Added index {0} for token '{1}'" -f $n, $t)
                 } else {
-                    Write-Warning "Index '{0}' out of range (valid: 1-{1})." -f $tok, $accounts.Count
-                    Write-Verbose ("Out of range numeric token: '{0}'" -f $tok)
+                    Write-Warning ("Index '{0}' out of range (valid: 1-{1})." -f $t, $accounts.Count)
                 }
+            } else {
+                Write-Warning "Ignored token '$t' (not a valid number or range)."
             }
         }
 
         if ($idxSet.Count -gt 0) {
             $result = $idxSet | Sort-Object
             $result = [int[]]$result
-            Write-Verbose ("Returning selected indices (0-based): {0}" -f ($result -join ', '))
+            Write-Verbose ([string]::Format("Returning selected indices (0-based): {0}", ($result -join ', ')))
             return $result
         }
 
         Write-Warning "No valid selection parsed. Try e.g. 'all', '1', '1,3', or '2-4'."
-        Write-Verbose "Selection loop will repeat; no valid indices collected."
     }
 }
 
@@ -178,11 +177,12 @@ function Start-EDLaunchForAccount($account, [ref]$globalKnownPids) {
             -Credential $pscred `
             -WorkingDirectory "C:\Program Files (x86)\Steam" `
             -PassThru -ErrorAction Stop
+        Write-Verbose "Start-Process -Credential succeeded for $($account.username) (PID: $($steamProc.Id))."
     } catch {
         $errMsg = $_.Exception.Message -or $_.Exception.ToString()
         # If error matches the duplicate-environment-key problem, attempt a fallback using ProcessStartInfo
         if ($errMsg -match 'Item has already been added' -or $errMsg -match 'WINDIR' -or $errMsg -match 'windir') {
-            Write-Host "Duplicate environment-key error detected, using fallback ProcessStartInfo start for $($account.username)..."
+            Write-Verbose "Duplicate environment-key error detected, using fallback ProcessStartInfo start for $($account.username)..."
             try {
                 $psi = New-Object System.Diagnostics.ProcessStartInfo
                 $psi.FileName = $steamPath
@@ -211,11 +211,12 @@ function Start-EDLaunchForAccount($account, [ref]$globalKnownPids) {
                         }
                     }
                 } else {
-                    Write-Warning "ProcessStartInfo environment dictionary not available on this runtime; skipping environment sanitization."
+                    Write-Verbose "ProcessStartInfo environment dictionary not available on this runtime; skipping environment sanitization."
                 }
 
                 $steamProc = [System.Diagnostics.Process]::Start($psi)
                 if (-not $steamProc) { throw "ProcessStartInfo start returned null" }
+                Write-Verbose "ProcessStartInfo fallback succeeded for $($account.username) (PID: $($steamProc.Id))."
             } catch {
                 Write-Warning "Fallback ProcessStartInfo start failed for $($account.username): $($_.Exception.Message)"
                 return $null
@@ -278,6 +279,12 @@ Write-Verbose ("Selected indices after wrapping: {0}" -f ($selectedIdx -join ', 
 if ($null -eq $selectedIdx -or $selectedIdx.Count -eq 0) {
     Write-Error "No accounts selected. Exiting."
     exit 1
+}
+
+# small launch-time diagnostic: show which credential will be used before starting
+foreach ($i in $selectedIdx) {
+    $acc = $accounts[$i]
+    Write-Verbose ("About to launch for index {0} -> username: {1}, client: {2}" -f $i, $acc.username, $acc.client)
 }
 
 # gather existing Elite: Dangerous PIDs
