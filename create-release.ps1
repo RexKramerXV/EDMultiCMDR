@@ -28,13 +28,26 @@ if (Test-Path $archivePath) {
     Remove-Item $archivePath -Force
 }
 
-$excluded = @('.git', 'dist', '.DS_Store')
-$pathsToPackage = Get-ChildItem -Path $repoRoot -Force |
-    Where-Object { $excluded -notcontains $_.Name } |
-    ForEach-Object { $_.FullName }
+# Explicitly include only these files in the release bundle:
+$includeNames = @(
+    'EDMultiCMDR.ps1',
+    'LICENSE',
+    'README.md',
+    'settings.examples.json'
+)
 
-if (-not $pathsToPackage) {
-    throw "Nothing to package from $repoRoot"
+$pathsToPackage = @()
+foreach ($name in $includeNames) {
+    $full = Join-Path $repoRoot $name
+    if (Test-Path $full) {
+        $pathsToPackage += $full
+    } else {
+        Write-Warning "Requested release file not found and will be skipped: $name"
+    }
+}
+
+if (-not $pathsToPackage -or $pathsToPackage.Count -eq 0) {
+    throw "Nothing to package — none of the requested files were found under $repoRoot"
 }
 
 Compress-Archive -Path $pathsToPackage -DestinationPath $archivePath -Force
