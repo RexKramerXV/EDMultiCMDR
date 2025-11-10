@@ -4,3 +4,7 @@
 
 # storage for furher ideas
 parking_lot.md
+
+# Visual Studio Code settings
+.vscode/
+# End of .gitignore

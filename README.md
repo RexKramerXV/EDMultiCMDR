@@ -21,15 +21,21 @@ Follow [these instructions](https://github.com/rfvgyhn/min-ed-launcher?tab=readm
 
 ## What the script does
 
-1. It reads [credentials and metadata](#windows-credential-manager-storage---json-blob-current) (Windows Logon ("username", "password" and "client" type ["Steam","Frontier","Epic"]) from Windows Credential Manager.
+1. It reads credentials and metadata (Windows logon "username", an encrypted "password" blob, and "client" type ["steam","frontier","epic"]) from a local JSON file stored under %LOCALAPPDATA%\EDMultiCMDR\credentials.json.
     1. A UI is presented to select for which users to start E:D via MinEDLauncher, with default to all
-    1. If there are no stored Credentials, it will ask the user to create them.
+    1. If there are no stored credentials, it will ask the user to create them.
 1. It keeps track of already running Elite : Dangerous instances (process names `EliteDangerous64','EliteDangerous`)
 1. it will check for "client" type - currently only Steam is supported
 1. For each selected user from the UI, it will
     1. start Steam process,
     1. waits (timeout of 30 seconds) until the NEW E:D process is started for the user,
     1. terminates the Steam process PID it started for the user (as you cannot have run several instances of Steam in parallel for different users)
+
+Note: the script emits diagnostic output via PowerShell's Write-Verbose/Write-Debug. To see debugging details when running the script, invoke it with -Verbose (or -Debug) e.g.:
+
+```powershell
+powershell -File .\EDMultiCMDR.ps1 -Verbose
+```
 
 ## How to launch additional processes
 
@@ -112,24 +118,24 @@ $steamProc = Start-Process -FilePath "C:\Program Files (x86)\Steam\steam.exe" `
     -PassThru
 ```
 
-### Windows Credential Manager Storage - JSON blob (current)
+### Local JSON credential file (current)
 
 ```json
 {
   "EDMultiCMDR": [
     {
       "username": "main@example.com",
-      "password": "main_password",
+      "password": "Encrypted_DPAPI_blob_here",
       "client": "steam"
     },
     {
       "username": "alt1@example.com",
-      "password": "alt1_password",
+      "password": "Encrypted_DPAPI_blob_here",
       "client": "steam"
     },
     {
       "username": "alt2@example.com",
-      "password": "alt2_password",
+      "password": "Encrypted_DPAPI_blob_here",
       "client": "steam"
     }
   ]
