@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$EditCredentials
+)
 
 # Greeting shown at script start
 Write-Host "`nEDMultiCMDR - multi-CMDR launch helper"
@@ -36,103 +38,114 @@ function Save-EDMultiCredentials([array]$accounts) {
 }
 
 function New-EDMultiAccounts {
-    Write-Host "No stored accounts found. Create accounts now."
-    Write-Verbose "Interactive account creation started."
-    $accounts = @()
-    while ($true) {
-        $u = Read-Host "Username (email / local username) [leave blank to stop]"
-        if ([string]::IsNullOrWhiteSpace($u)) { break }
-        # read as SecureString and store encrypted string (DPAPI) in JSON
-        $p = Read-Host "Password (input hidden)" -AsSecureString
-        $enc = $p | ConvertFrom-SecureString
-        $client = Read-Host "Client type (steam/frontier/epic) [default: steam]"
-        if ([string]::IsNullOrWhiteSpace($client)) { $client = "steam" }
-        $accounts += @{ username = $u; password = $enc; client = $client.ToLower() }
-        Write-Verbose ("Added account: {0} (client: {1})" -f $u, $client)
-    }
-    if ($accounts.Count -gt 0) {
-        Save-EDMultiCredentials -accounts $accounts
-    }
-    return $accounts
+	Write-Host "No stored accounts found. Create accounts now."
+	Write-Verbose "Interactive account creation started."
+	$accounts = @()
+	while ($true) {
+		$u = Read-Host "Username (email / local username) [leave blank to stop]"
+		if ([string]::IsNullOrWhiteSpace($u)) { break }
+		# read as SecureString and store encrypted string (DPAPI) in JSON
+		$p = Read-Host "Password (input hidden)" -AsSecureString
+		$enc = $p | ConvertFrom-SecureString
+		$client = Read-Host "Client type (steam/frontier/epic) [default: steam]"
+		if ([string]::IsNullOrWhiteSpace($client)) { $client = "steam" }
+		# If frontier, prompt for the launcher profile name to pass to /frontier
+		$frontierProfile = $null
+		if ($client.ToLower() -eq 'frontier') {
+			$profileInput = Read-Host "Frontier profile name (leave blank to use default)"
+			if (-not [string]::IsNullOrWhiteSpace($profileInput)) { $frontierProfile = $profileInput }
+		}
+		# include profile always (empty string when not provided) so all entries have a 'profile' key
+		$acct = @{ username = $u; password = $enc; client = $client.ToLower() }
+		if ($frontierProfile) { $acct.profile = $frontierProfile } else { $acct.profile = '' }
+		$accounts += $acct
+		Write-Verbose ("Added account: {0} (client: {1})" -f $u, $client)
+	}
+	if ($accounts.Count -gt 0) {
+		Save-EDMultiCredentials -accounts $accounts
+	}
+	return $accounts
 }
 
 function Select-Accounts([array]$accounts) {
-    Write-Verbose ("Select-Accounts invoked; accounts.Count = {0}" -f $accounts.Count)
-    Write-Host "Available accounts:"
-    for ($i = 0; $i -lt $accounts.Count; $i++) {
-        $a = $accounts[$i]
-        Write-Host ("[{0}] {1} ({2})" -f ($i + 1), $a.username, $a.client)
-    }
+		Write-Verbose ("Select-Accounts invoked; accounts.Count = {0}" -f $accounts.Count)
+		Write-Host "Available accounts:"
+		for ($i = 0; $i -lt $accounts.Count; $i++) {
+			$a = $accounts[$i]
+			# show profile for frontier accounts if present
+			$profileInfo = if ($a.profile) { " profile:`"$($a.profile)`"" } else { "" }
+			Write-Host ("[{0}] {1} ({2}{3})" -f ($i + 1), $a.username, $a.client, $profileInfo)
+		}
 
-    while ($true) {
-        $sel = Read-Host "Select accounts to start (comma/range: e.g. 1,3,5-7) [default: all]"
-        Write-Verbose ("User input for selection: '{0}'" -f $sel)
-        if ([string]::IsNullOrWhiteSpace($sel)) {
-            Write-Verbose "No input given; defaulting to all accounts."
-            return [int[]](0..($accounts.Count - 1))
-        }
+		while ($true) {
+			$sel = Read-Host "Select accounts to start (comma/range: e.g. 1,3,5-7) [default: all]"
+			Write-Verbose ("User input for selection: '{0}'" -f $sel)
+			if ([string]::IsNullOrWhiteSpace($sel)) {
+				Write-Verbose "No input given; defaulting to all accounts."
+				return [int[]](0..($accounts.Count - 1))
+			}
 
-        $selTrim = $sel.Trim()
-        Write-Verbose ("Trimmed input: '{0}'" -f $selTrim)
-        if ($selTrim.ToLowerInvariant() -eq 'all') {
-            Write-Verbose "User entered 'all' (case-insensitive). Returning all indices."
-            return [int[]](0..($accounts.Count - 1))
-        }
+			$selTrim = $sel.Trim()
+			Write-Verbose ("Trimmed input: '{0}'" -f $selTrim)
+			if ($selTrim.ToLowerInvariant() -eq 'all') {
+				Write-Verbose "User entered 'all' (case-insensitive). Returning all indices."
+				return [int[]](0..($accounts.Count - 1))
+			}
 
-        $idxSet = New-Object System.Collections.Generic.HashSet[int]
+			$idxSet = New-Object System.Collections.Generic.HashSet[int]
 
-        # Split on commas; accept tokens like "2" or "2-5". Tolerate spaces.
-        $tokens = $selTrim -split '\s*,\s*' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-        Write-Verbose ("Parsed tokens: {0}" -f ($tokens -join ', '))
+			# Split on commas; accept tokens like "2" or "2-5". Tolerate spaces.
+			$tokens = $selTrim -split '\s*,\s*' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+			Write-Verbose ("Parsed tokens: {0}" -f ($tokens -join ', '))
 
-        foreach ($tok in $tokens) {
-            $t = $tok.Trim()
-            if ($t -match '^(?<a>\d+)\s*-\s*(?<b>\d+)$') {
-                # range token (1-based input)
-                try {
-                    $a = [int]$Matches['a'] - 1
-                    $b = [int]$Matches['b'] - 1
-                } catch {
-                    Write-Warning "Could not parse range token '$t'."
-                    continue
-                }
-                if ($a -gt $b) {
-                    Write-Warning "Ignored range '$t' because start > end."
-                    continue
-                }
-                for ($n = $a; $n -le $b; $n++) {
-                    if ($n -ge 0 -and $n -lt $accounts.Count) { $idxSet.Add($n) | Out-Null }
-                }
-                Write-Verbose ("Interpreted range token '{0}' -> {1}-{2}" -f $t, $a, $b)
-            } elseif ($t -match '^\d+$') {
-                # single number token (1-based input)
-                try {
-                    $n = [int]$t - 1
-                } catch {
-                    Write-Warning "Could not parse numeric token '$t'."
-                    continue
-                }
-                if ($n -ge 0 -and $n -lt $accounts.Count) {
-                    $idxSet.Add($n) | Out-Null
-                    Write-Verbose ("Added index {0} for token '{1}'" -f $n, $t)
-                } else {
-                    Write-Warning ("Index '{0}' out of range (valid: 1-{1})." -f $t, $accounts.Count)
-                }
-            } else {
-                Write-Warning "Ignored token '$t' (not a valid number or range)."
-            }
-        }
+			foreach ($tok in $tokens) {
+				$t = $tok.Trim()
+				if ($t -match '^(?<a>\d+)\s*-\s*(?<b>\d+)$') {
+					# range token (1-based input)
+					try {
+						$a = [int]$Matches['a'] - 1
+						$b = [int]$Matches['b'] - 1
+					} catch {
+						Write-Warning "Could not parse range token '$t'."
+						continue
+					}
+					if ($a -gt $b) {
+						Write-Warning "Ignored range '$t' because start > end."
+						continue
+					}
+					for ($n = $a; $n -le $b; $n++) {
+						if ($n -ge 0 -and $n -lt $accounts.Count) { $idxSet.Add($n) | Out-Null }
+					}
+					Write-Verbose ("Interpreted range token '{0}' -> {1}-{2}" -f $t, $a, $b)
+				} elseif ($t -match '^\d+$') {
+					# single number token (1-based input)
+					try {
+						$n = [int]$t - 1
+					} catch {
+						Write-Warning "Could not parse numeric token '$t'."
+						continue
+					}
+					if ($n -ge 0 -and $n -lt $accounts.Count) {
+						$idxSet.Add($n) | Out-Null
+						Write-Verbose ("Added index {0} for token '{1}'" -f $n, $t)
+					} else {
+						Write-Warning ("Index '{0}' out of range (valid: 1-{1})." -f $t, $accounts.Count)
+					}
+				} else {
+					Write-Warning "Ignored token '$t' (not a valid number or range)."
+				}
+			}
 
-        if ($idxSet.Count -gt 0) {
-            $result = $idxSet | Sort-Object
-            $result = [int[]]$result
-            Write-Verbose ([string]::Format("Returning selected indices (0-based): {0}", ($result -join ', ')))
-            return $result
-        }
+			if ($idxSet.Count -gt 0) {
+				$result = $idxSet | Sort-Object
+				$result = [int[]]$result
+				Write-Verbose ([string]::Format("Returning selected indices (0-based): {0}", ($result -join ', ')))
+				return $result
+			}
 
-        Write-Warning "No valid selection parsed. Try e.g. 'all', '1', '1,3', or '2-4'."
-    }
-}
+			Write-Warning "No valid selection parsed. Try e.g. 'all', '1', '1,3', or '2-4'."
+		}
+	}
 
 function Wait-ForNewEDProcess([int[]]$knownPids, [int]$timeoutSec = 30) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -148,115 +161,284 @@ function Wait-ForNewEDProcess([int[]]$knownPids, [int]$timeoutSec = 30) {
 }
 
 function Start-EDLaunchForAccount($account, [ref]$globalKnownPids) {
-    Write-Verbose ("Start-EDLaunchForAccount: account={0}, client={1}" -f $account.username, $account.client)
-    if ($account.client -ne 'steam') {
-        Write-Host "Skipping $($account.username): unsupported client '$($account.client)'."
-        return $null
-    }
-    $steamPath = "C:\Program Files (x86)\Steam\steam.exe"
-    if (-not (Test-Path $steamPath)) {
-        Write-Warning "Steam not found at $steamPath. Skipping $($account.username)."
-        return $null
-    }
+	Write-Verbose ("Start-EDLaunchForAccount: account={0}, client={1}" -f $account.username, $account.client)
 
-    # convert stored encrypted password back to SecureString (DPAPI)
-    try {
-        $securePass = ConvertTo-SecureString $account.password
-    } catch {
-        Write-Warning "Failed to convert stored password for $($account.username). Skipping."
-        return $null
-    }
-    $pscred = New-Object System.Management.Automation.PSCredential($account.username, $securePass)
+	# show non-sensitive account details (profile may be empty)
+	$profileVal = if ($account.PSObject.Properties['profile']) { $account.profile } else { '' }
+	Write-Verbose ("Account details: username={0}, client={1}, profile='{2}'" -f $account.username, $account.client, $profileVal)
 
-    Write-Host "Starting Steam as $($account.username)..."
+	# convert stored encrypted password back to SecureString (DPAPI)
+	try {
+		$securePass = ConvertTo-SecureString $account.password
+		Write-Verbose "Password conversion: success (SecureString obtained)."
+	} catch {
+		Write-Warning "Failed to convert stored password for $($account.username). Skipping."
+		return $null
+	}
+	$pscred = New-Object System.Management.Automation.PSCredential($account.username, $securePass)
 
-    # First try the simple Start-Process -Credential path
-    try {
-        $steamProc = Start-Process -FilePath $steamPath `
-            -ArgumentList @('-silent','-gameidlaunch','359320') `
-            -Credential $pscred `
-            -WorkingDirectory "C:\Program Files (x86)\Steam" `
-            -PassThru -ErrorAction Stop
-        Write-Verbose "Start-Process -Credential succeeded for $($account.username) (PID: $($steamProc.Id))."
-    } catch {
-        $errMsg = $_.Exception.Message -or $_.Exception.ToString()
-        # If error matches the duplicate-environment-key problem, attempt a fallback using ProcessStartInfo
-        if ($errMsg -match 'Item has already been added' -or $errMsg -match 'WINDIR' -or $errMsg -match 'windir') {
-            Write-Verbose "Duplicate environment-key error detected, using fallback ProcessStartInfo start for $($account.username)..."
-            try {
-                $psi = New-Object System.Diagnostics.ProcessStartInfo
-                $psi.FileName = $steamPath
-                $psi.Arguments = '-silent -gameidlaunch 359320'
-                $psi.WorkingDirectory = "C:\Program Files (x86)\Steam"
-                $psi.UseShellExecute = $false
-                $psi.UserName = $account.username
-                $psi.Password = $securePass
-                $psi.LoadUserProfile = $true
+	# --- Frontier launcher support ---
+	if ($account.client -eq 'frontier') {
+		# common candidate locations for MinEdLauncher
+		$candidates = @(
+			"${env:ProgramFiles(x86)}\Elite Dangerous\MinEdLauncher.exe",
+			"${env:ProgramFiles(x86)}\Steam\steamapps\common\Elite Dangerous\MinEdLauncher.exe",
+			"${env:ProgramFiles}\Elite Dangerous\MinEdLauncher.exe"
+		) | Where-Object { $_ -and (Test-Path $_) }
 
-                # Robustly find the environment dictionary on this runtime and populate it safely.
-                $envTarget = $null
-                try { if ($null -ne $psi.EnvironmentVariables) { $envTarget = $psi.EnvironmentVariables } } catch {}
-                try { if ($null -eq $envTarget -and $null -ne $psi.Environment) { $envTarget = $psi.Environment } } catch {}
+        if (-not $candidates -or $candidates.Count -eq 0) {
+			Write-Warning "Frontier launcher (MinEdLauncher) not found in common locations. Skipping $($account.username)."
+			return $null
+		}
 
-                if ($null -ne $envTarget) {
-                    try { $envTarget.Clear() } catch {}
-                    $added = @{ }
-                    $currentEnv = [System.Environment]::GetEnvironmentVariables()
-                    foreach ($k in $currentEnv.Keys) {
-                        $kstr = [string]$k
-                        $upper = $kstr.ToUpperInvariant()
-                        if (-not $added.ContainsKey($upper)) {
-                            try { $envTarget[$kstr] = $currentEnv[$k] } catch {}
-                            $added[$upper] = $true
-                        }
+		$launcherPath = $candidates[0]
+		$wd = Split-Path $launcherPath
+		# allow optional profile field in credentials JSON to specify the /frontier profile name
+		$profileArg = if ($account.profile) { "/frontier $($account.profile)" } else { "/frontier" }
+		$arglist = @($profileArg, "/autorun", "/autoquit")
+
+		Write-Host "Starting Frontier launcher ($launcherPath) as $($account.username)..."
+		Write-Verbose ("Launcher args: {0}" -f ($arglist -join ' '))
+		Write-Verbose ("Found Frontier launcher at: {0} (working dir: {1})" -f $launcherPath, $wd)
+		Write-Verbose ("Will start Frontier with args: {0}" -f ($arglist -join ' '))
+
+		# Prefer Start-Process -Credential (consistent with Steam handling)
+		try {
+			Write-Verbose "Attempting Start-Process -Credential for Frontier launcher..."
+			$launcherProc = Start-Process -FilePath $launcherPath `
+				-ArgumentList $arglist `
+				-Credential $pscred `
+				-WorkingDirectory $wd `
+				-PassThru -ErrorAction Stop
+			Write-Verbose ("Start-Process -Credential succeeded for Frontier launcher (PID: {0})." -f $launcherProc.Id)
+		} catch {
+			Write-Warning ("Failed to start Frontier launcher for {0}: {1}" -f $account.username, $_.Exception.Message)
+			return $null
+		}
+
+		# Wait for new Elite process same as Steam branch
+		$newPid = Wait-ForNewEDProcess -knownPids $globalKnownPids.Value -timeoutSec 30
+		if ($newPid) {
+			Write-Host "Detected new Elite: Dangerous process PID $newPid for $($account.username)."
+			$globalKnownPids.Value = $globalKnownPids.Value + $newPid
+		} else {
+			Write-Warning "No new Elite: Dangerous process detected within timeout for $($account.username)."
+		}
+
+		# we do not terminate the real Frontier launcher process started by MinEDLauncher!
+
+        return $newPid
+	}
+
+	# --- Steam ---
+	$steamPath = "C:\Program Files (x86)\Steam\steam.exe"
+	if (-not (Test-Path $steamPath)) {
+		Write-Warning "Steam not found at $steamPath. Skipping $($account.username)."
+		return $null
+	}
+
+	Write-Host "Starting Steam as $($account.username)..."
+	Write-Verbose ("Attempting Start-Process -Credential for Steam: FilePath={0}, Args={1}, WorkingDir={2}" -f $steamPath, $steamArgs, "C:\Program Files (x86)\Steam")
+
+	# First try the simple Start-Process -Credential path
+	try {
+        $steamArgs = '-silent -gameidlaunch 359320'
+ 		$steamProc = Start-Process -FilePath $steamPath `
+			-ArgumentList @('-silent','-gameidlaunch','359320') `
+ 			-Credential $pscred `
+ 			-WorkingDirectory "C:\Program Files (x86)\Steam" `
+ 			-PassThru -ErrorAction Stop
+ 		Write-Verbose "Start-Process -Credential succeeded for $($account.username) (PID: $($steamProc.Id))."
+ 	} catch {
+ 		$errMsg = $_.Exception.Message -or $_.Exception.ToString()
+ 		# If error matches the duplicate-environment-key problem, attempt a fallback using ProcessStartInfo
+ 		if ($errMsg -match 'Item has already been added' -or $errMsg -match 'WINDIR' -or $errMsg -match 'windir') {
+			Write-Verbose "Duplicate environment-key error detected, using fallback ProcessStartInfo start for $($account.username)..."
+ 			try {
+                Write-Verbose ("Preparing ProcessStartInfo: FileName={0}, Arguments={1}, WorkingDirectory={2}" -f $steamPath, '-silent -gameidlaunch 359320', "C:\Program Files (x86)\Steam")
+ 				$psi = New-Object System.Diagnostics.ProcessStartInfo
+ 				$psi.FileName = $steamPath
+ 				$psi.Arguments = '-silent -gameidlaunch 359320'
+ 				$psi.WorkingDirectory = "C:\Program Files (x86)\Steam"
+ 				$psi.UseShellExecute = $false
+ 				$psi.UserName = $account.username
+ 				$psi.Password = $securePass
+ 				$psi.LoadUserProfile = $true
+
+ 				# Robustly find the environment dictionary on this runtime and populate it safely.
+ 				$envTarget = $null
+ 				try { if ($null -ne $psi.EnvironmentVariables) { $envTarget = $psi.EnvironmentVariables } } catch {}
+ 				try { if ($null -eq $envTarget -and $null -ne $psi.Environment) { $envTarget = $psi.Environment } } catch {}
+
+ 				if ($null -ne $envTarget) {
+ 					try { $envTarget.Clear() } catch {}
+ 					$added = @{ }
+ 					$currentEnv = [System.Environment]::GetEnvironmentVariables()
+ 					foreach ($k in $currentEnv.Keys) {
+ 						$kstr = [string]$k
+ 						$upper = $kstr.ToUpperInvariant()
+ 						if (-not $added.ContainsKey($upper)) {
+ 							try { $envTarget[$kstr] = $currentEnv[$k] } catch {}
+ 							$added[$upper] = $true
+ 						}
+ 					}
+ 				} else {
+ 					Write-Verbose "ProcessStartInfo environment dictionary not available on this runtime; skipping environment sanitization."
+ 				}
+
+ 				$steamProc = [System.Diagnostics.Process]::Start($psi)
+ 				if (-not $steamProc) { throw "ProcessStartInfo start returned null" }
+                Write-Verbose ("ProcessStartInfo fallback succeeded for {0} (PID: {1})" -f $account.username, $steamProc.Id)
+ 			} catch {
+ 				Write-Warning "Fallback ProcessStartInfo start failed for $($account.username): $($_.Exception.Message)"
+ 				return $null
+ 			}
+ 		} else {
+ 			Write-Warning "Failed to start Steam for $($account.username): $errMsg"
+ 			return $null
+ 		}
+ 	}
+
+	# Wait for new Elite process
+	$newPid = Wait-ForNewEDProcess -knownPids $globalKnownPids.Value -timeoutSec 30
+	if ($newPid) {
+		Write-Host "Detected new Elite: Dangerous process PID $newPid for $($account.username)."
+		$globalKnownPids.Value = $globalKnownPids.Value + $newPid
+	} else {
+		Write-Warning "No new Elite: Dangerous process detected within timeout for $($account.username)."
+	}
+
+	# terminate Steam process we started (if still running)
+	try {
+		if ($steamProc -and ($steamProc.HasExited -eq $false)) {
+			if ($steamProc -is [System.Diagnostics.Process]) {
+				$steamProc.Kill()
+			} else {
+				try { Stop-Process -Id $steamProc.Id -Force -ErrorAction SilentlyContinue } catch {}
+			}
+			$stoppedPid = $null
+			try { $stoppedPid = $steamProc.Id } catch {}
+			if ($stoppedPid) {
+				Write-Host "Stopped Steam process (PID $stoppedPid) started for $($account.username)."
+			} else {
+				Write-Host "Stopped Steam process started for $($account.username)."
+			}
+		}
+	} catch {
+		Write-Warning "Could not stop Steam process PID $($steamProc.Id): $($_.Exception.Message)"
+	}
+
+	return $newPid
+}
+
+function Edit-EDMultiCredentials {
+    <#
+    Interactive editor for stored credentials.
+    Supports: list, add, edit <n>, remove <n>, save, quit
+    #>
+    while ($true) {
+        $accounts = Get-EDMultiCredentials
+        if (-not $accounts) { $accounts = @() }
+
+        Write-Host "`nStored accounts:"
+        for ($i = 0; $i -lt $accounts.Count; $i++) {
+            $a = $accounts[$i]
+            $prof = if ($a.profile) { " profile=`"$($a.profile)`"" } else { "" }
+            Write-Host ("[{0}] {1} ({2}{3})" -f ($i+1), $a.username, $a.client, $prof)
+        }
+        Write-Host ""
+        $cmd = Read-Host "Command: (a)dd, (e)dit <number>, (r)emove <number>, (s)ave, (q)uit"
+        if ([string]::IsNullOrWhiteSpace($cmd)) { continue }
+        $parts = $cmd.Trim() -split '\s+'
+        switch ($parts[0].ToLower()) {
+            'a' {
+                $u = Read-Host "Username (email / local username)"
+                if ([string]::IsNullOrWhiteSpace($u)) { Write-Warning "Username required."; continue }
+                $p = Read-Host "Password (input hidden)" -AsSecureString
+                $enc = $p | ConvertFrom-SecureString
+                $client = Read-Host "Client type (steam/frontier/epic) [default: steam]"
+                if ([string]::IsNullOrWhiteSpace($client)) { $client = 'steam' }
+                # always ensure a 'profile' key exists; set frontier profile when provided, otherwise empty
+                $acct = @{ username = $u; password = $enc; client = $client.ToLower() }
+                if ($client.ToLower() -eq 'frontier') {
+                    $profInput = Read-Host "Frontier profile name (leave blank to use default)"
+                    if (-not [string]::IsNullOrWhiteSpace($profInput)) { $acct.profile = $profInput } else { $acct.profile = '' }
+                } else {
+                    $acct.profile = ''
+                }
+                $accounts += $acct
+                Save-EDMultiCredentials -accounts $accounts
+                Write-Host "Added account for $u and saved."
+            }
+            'e' {
+                if ($parts.Count -lt 2 -or -not [int]::TryParse($parts[1], [ref]$null)) {
+                    Write-Warning "Usage: e <number>"
+                    continue
+                }
+                $idx = [int]$parts[1] - 1
+                if ($idx -lt 0 -or $idx -ge $accounts.Count) { Write-Warning "Index out of range."; continue }
+                $a = $accounts[$idx]
+                $nu = Read-Host "Username [$($a.username)]"
+                if (-not [string]::IsNullOrWhiteSpace($nu)) { $a.username = $nu }
+                $chg = Read-Host "Change password? (y/N)"
+                if ($chg -match '^[yY]') {
+                    $np = Read-Host "Password (input hidden)" -AsSecureString
+                    $a.password = $np | ConvertFrom-SecureString
+                }
+                $nc = Read-Host "Client [$($a.client)]"
+                if (-not [string]::IsNullOrWhiteSpace($nc)) { $a.client = $nc.ToLower() }
+                # robustly ensure 'profile' exists for all accounts:
+                $current = if ($a.PSObject.Properties['profile']) { $a.profile } else { '' }
+                if ($a.client -eq 'frontier') {
+                    $nprof = Read-Host ("Profile name [{0}] (leave blank to keep)" -f (if ($current -ne '') { $current } else { 'none' }))
+                    if (-not [string]::IsNullOrWhiteSpace($nprof)) {
+                        if ($a.PSObject.Properties['profile']) { $a.profile = $nprof } else { $a | Add-Member -NotePropertyName 'profile' -NotePropertyValue $nprof -Force }
+                    } elseif (-not $a.PSObject.Properties['profile']) {
+                        # create empty profile property if missing
+                        $a | Add-Member -NotePropertyName 'profile' -NotePropertyValue '' -Force
                     }
                 } else {
-                    Write-Verbose "ProcessStartInfo environment dictionary not available on this runtime; skipping environment sanitization."
+                    # when switching to non-frontier (e.g. steam), keep a profile key but set empty
+                    if ($a.PSObject.Properties['profile']) { $a.profile = '' } else { $a | Add-Member -NotePropertyName 'profile' -NotePropertyValue '' -Force }
                 }
-
-                $steamProc = [System.Diagnostics.Process]::Start($psi)
-                if (-not $steamProc) { throw "ProcessStartInfo start returned null" }
-                Write-Verbose "ProcessStartInfo fallback succeeded for $($account.username) (PID: $($steamProc.Id))."
-            } catch {
-                Write-Warning "Fallback ProcessStartInfo start failed for $($account.username): $($_.Exception.Message)"
-                return $null
+                $accounts[$idx] = $a
+                Save-EDMultiCredentials -accounts $accounts
+                Write-Host "Edited entry $($idx+1) and saved."
             }
-        } else {
-            Write-Warning "Failed to start Steam for $($account.username): $errMsg"
-            return $null
-        }
-    }
-
-    # Wait for new Elite process
-    $newPid = Wait-ForNewEDProcess -knownPids $globalKnownPids.Value -timeoutSec 30
-    if ($newPid) {
-        Write-Host "Detected new Elite: Dangerous process PID $newPid for $($account.username)."
-        $globalKnownPids.Value = $globalKnownPids.Value + $newPid
-    } else {
-        Write-Warning "No new Elite: Dangerous process detected within timeout for $($account.username)."
-    }
-
-    # terminate Steam process we started (if still running)
-    try {
-        if ($steamProc -and ($steamProc.HasExited -eq $false)) {
-            if ($steamProc -is [System.Diagnostics.Process]) {
-                $steamProc.Kill()
-            } else {
-                try { Stop-Process -Id $steamProc.Id -Force -ErrorAction SilentlyContinue } catch {}
+            'r' {
+                if ($parts.Count -lt 2 -or -not [int]::TryParse($parts[1], [ref]$null)) {
+                    Write-Warning "Usage: r <number>"
+                    continue
+                }
+                $idx = [int]$parts[1] - 1
+                if ($idx -lt 0 -or $idx -ge $accounts.Count) { Write-Warning "Index out of range."; continue }
+                $confirm = Read-Host "Remove account $($accounts[$idx].username)? (y/N)"
+                if ($confirm -match '^[yY]') {
+                    $accounts = $accounts | Where-Object { $_ -ne $accounts[$idx] }
+                    Save-EDMultiCredentials -accounts $accounts
+                    Write-Host "Removed entry $($idx+1) and saved."
+                }
             }
-            $stoppedPid = $null
-            try { $stoppedPid = $steamProc.Id } catch {}
-            if ($stoppedPid) {
-                Write-Host "Stopped Steam process (PID $stoppedPid) started for $($account.username)."
-            } else {
-                Write-Host "Stopped Steam process started for $($account.username)."
+            's' {
+                Save-EDMultiCredentials -accounts $accounts
+                Write-Host "Saved credentials."
+                return
+            }
+            'q' {
+                $confirm = Read-Host "Quit without saving? (y/N)"
+                if ($confirm -match '^[yY]') { return }
+            }
+            default {
+                Write-Warning "Unknown command."
             }
         }
-    } catch {
-        Write-Warning "Could not stop Steam process PID $($steamProc.Id): $($_.Exception.Message)"
     }
+}
 
-    return $newPid
+# If user requested only to edit credentials, do so and exit
+if ($EditCredentials) {
+    Edit-EDMultiCredentials
+    return
 }
 
 # --- main flow ---
