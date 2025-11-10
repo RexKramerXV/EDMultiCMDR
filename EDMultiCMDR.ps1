@@ -1,8 +1,9 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param()
 
 # Greeting shown at script start
-Write-Host "`nEDMultiCMDR — multi-CMDR launch helper`n"
+Write-Host "`nEDMultiCMDR — multi-CMDR launch helper"
+Write-Host "======================================`n"
 
 function Initialize-CredentialStore {
     # replaced: no external module required; ensure storage directory exists and set file path
