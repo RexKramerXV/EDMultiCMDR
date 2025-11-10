@@ -6,6 +6,7 @@ Usage:
 
 The script drops release archives under ./dist.
 #>
+
 [CmdletBinding()]
 param(
     [string]$Version

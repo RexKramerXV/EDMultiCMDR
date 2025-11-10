@@ -1,8 +1,7 @@
 {
     "apiUri": "https://api.zaonce.net",
-    "gameLocation": "",
     "watchForCrashes": false,
-    "language": "en",
+    "language": null,
     "autoUpdate": true,
     "checkForLauncherUpdates": true,
     "maxConcurrentDownloads": 4,
@@ -14,7 +13,6 @@
         }
     ],
     "shutdownProcesses": [],
-    "shutdownTimeout": 10,
     "filterOverrides": [
         { "sku": "FORC-FDEV-DO-1000", "filter": "edo" },
         { "sku": "FORC-FDEV-DO-38-IN-40", "filter": "edh4" }

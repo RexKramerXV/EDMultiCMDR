@@ -1,47 +1,146 @@
 # EDMultiCMDR
 
-Scripts to launch multiple CMDRs on a single Windows machine, plus the [EDMarketConnector](https://github.com/EDCD/EDMarketConnector) tool specific to the CMDR chosen.
+Status: November 10, 2025
 
-Uses [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher), specifically the [multi-account part](https://github.com/rfvgyhn/min-ed-launcher?tab=readme-ov-file#multi-account).
+Script to launch multiple CMDRs under one single login on a Windows computer. Uses [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher), specifically the [multi-account part](https://github.com/rfvgyhn/min-ed-launcher?tab=readme-ov-file#multi-account).
 
-## How?
+Describes a method to run concurrently multiple instances of [EDMarketConnector](https://github.com/EDCD/EDMarketConnector) (EDMC) tool specific to the CMDRs chosen.
 
-### Put the settings in place
+## Prerequisites
 
-`settings[-steam|-frontier].json` must be copied to `%LOCALAPPDATA%\min-ed-launcher\settings.json`. It ensures log files of the correct CMDR are parsed.
+- You have a standard Steam installation of E:D.
+- Optional: you have a standard installation of [EDMarketConnector](https://github.com/EDCD/EDMarketConnector).
+- You have installed [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher).
+- On your local Windows machine, user accounts exist for every CMDR you'd like to launch.
+- In each of theses accounts, the E:D launch command has to be adjusted in Steam to use the MinEDLauncher.
+- You have adapted the launch command in Steam to use [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher?tab=readme-ov-file#steam).
 
-The `%LOCALAPPDATA%`refers to a directory *specific* to the CMDR - which enables us to launch programs (EDMC, VoiceAttack, EDDI, ED Discovery, ...) specific to that CMDR.
+## Adapt the Steam launch command
 
-So, using the Windows usernames of the example scripts, the (maybe same) `settings.json`file would end up in three directories.
+Follow [these instructions](https://github.com/rfvgyhn/min-ed-launcher?tab=readme-ov-file#steam) to adapt the Steam launcher command. For the launcher command, use `cmd /c "MinEdLauncher.exe %command% /autorun /autoquit"`
 
-- `C:\Users\maincmdr\AppData\Local\min-ed-launcher\settings.json`for the Main CMDR,
-- `C:\Users\alt1\AppData\Local\min-ed-launcher\settings.json`for the first alt CMDR,
-- `C:\Users\alt2\AppData\Local\min-ed-launcher\settings.json`for the second alt CMDR.
+## What the script does
 
-Use the proper template depending on the type of account the CMDR uses: the only difference is that Steam installations require the `"gamelocation"`key in the JSON.
+1. It reads [credentials and metadata](#windows-credential-manager-storage---json-blob-current) (Windows Logon ("username", "password" and "client" type ["Steam","Frontier","Epic"]) from Windows Credential Manager.
+    1. A UI is presented to select for which users to start E:D via MinEDLauncher, with default to all
+    1. If there are no stored Credentials, it will ask the user to create them.
+1. It keeps track of already running Elite : Dangerous instances (process names `EliteDangerous64','EliteDangerous`)
+1. it will check for "client" type - currently only Steam is supported
+1. For each selected user from the UI, it will
+    1. start Steam process,
+    1. waits (timeout of 30 seconds) until the NEW E:D process is started for the user,
+    1. terminates the Steam process PID it started for the user (as you cannot have run several instances of Steam in parallel for different users)
 
-### Adapt your various Commanders
+## How to launch additional processes
 
-Adjust the PowerShell scripts for each of your commanders. Launch it once manually, do the authentication via Frontier website. The credentials will be stored for later use.
+Trigger for this repo was the wish to run several CMDRs in parallel, while running multiple instances of EDMC for each of them.
 
-To be verified: the PowerShell must be run as Administrator?
+This can be done via [MinEDLauncher's `settings.json`](https://github.com/rfvgyhn/min-ed-launcher#settings).
 
-### Creating proper shortcuts
+After first launch of MinEDLaucher, it will place a default `settings.json` file under `%LOCALAPPDATA%\min-ed-launcher\settings.json`.
 
-Will be handled as soon as the concept works.
+```json
+{
+    "apiUri": "https://api.zaonce.net",
+    "watchForCrashes": false,
+    "language": null,
+    "autoUpdate": true,
+    "checkForLauncherUpdates": true,
+    "maxConcurrentDownloads": 4,
+    "forceUpdate": "",
+    "processes": [],
+    "shutdownProcesses": [],
+    "filterOverrides": [
+        { "sku": "FORC-FDEV-DO-1000", "filter": "edo" },
+        { "sku": "FORC-FDEV-DO-38-IN-40", "filter": "edh4" }
+    ],
+    "additionalProducts": []
+}
+```
 
-We must include the intended profiles when starting the launcher(s) by using the `/frontier ...` directive.
+This can be modified to automagically launch EDMC under the ***user running E:D via MinEDLauncher***.
 
-**Shortcut for Windows**
-Create a shortcut with "Target": `cmd /c "MinEdLauncher.exe %command% /frontier <put your profile-name here> /autorun /autoquit"`
+**Easiest way to access this file is to log in locally with each CMDR account and work directly under their user access rights - open Steam, modify the launcher command and start it once.** Then,
 
-**Shortcut for Steam**
-Follow [these instructions](https://github.com/rfvgyhn/min-ed-launcher?tab=readme-ov-file#steam) to adapt the Steam launcher command. For the launcher command, use `cmd /c "MinEdLauncher.exe %command% /frontier <put your profile-name here> /autorun /autoquit"`
+substitute `"processes": []," with
 
-Create a shortcut with "Target": `"C:\Program Files (x86)\Steam\Steam.exe" -gameidlaunch 359320 /edo`
+```json
+   "processes": [
+        {
+            "fileName": "C:\\Program Files (x86)\\EDMarketConnector\\EDMarketConnector.exe",
+            "arguments": "--force-localserver-for-auth"
+        }
+    ],
+```
 
-## Default E:D installation directories
+And your good to go. Feel free to add more programs. Another example for running EDMC and [VoiceAttack](https://voiceattack.com/) (e.g. for your main account only) would be
 
-- **Frontier launcher, global installation**: `C:\Program Files (x86)\Frontier\Products\elite-dangerous-64\`
-- **Frontier, user-specific installation**: `C:\Program Files (x86)\Steam\steamapps\common\Elite Dangerous\Products\elite-dangerous-64\`
-- **Steam**: `C:\Program Files (x86)\Steam\steamapps\common\Elite Dangerous\Products\elite-dangerous-64\`
+```json
+   "processes": [
+        {
+            "fileName": "C:\\Program Files (x86)\\EDMarketConnector\\EDMarketConnector.exe",
+            "arguments": "--force-localserver-for-auth"
+        },
+        {
+            "fileName": "C:\\Program Files\\VoiceAttack\\VoiceAttack.exe"
+        }
+    ],
+```
+
+or [EDDiscovery](https://github.com/EDDiscovery/EDDiscovery/wiki)
+
+```json
+   "processes": [
+        {
+            "fileName": "C:\\Program Files\\EDDiscovery\\EDDiscovery.exe"
+        }
+    ],
+```
+
+or [EDDI](https://github.com/EDCD/EDDI), or whatever floats your boat.
+
+## Key functionality and formats
+
+### Steam process launch
+
+```powershell
+Write-Host "Starting Steam (steam.exe) as $username..."
+$steamProc = Start-Process -FilePath "C:\Program Files (x86)\Steam\steam.exe" `
+    -ArgumentList '-silent','-gameidlaunch','359320' `
+    -Credential $cred `
+    -WorkingDirectory "C:\Program Files (x86)\Steam" `
+    -PassThru
+```
+
+### Windows Credential Manager Storage - JSON blob (current)
+
+```json
+{
+  "EDMultiCMDR": [
+    {
+      "username": "main@example.com",
+      "password": "main_password",
+      "client": "steam"
+    },
+    {
+      "username": "alt1@example.com",
+      "password": "alt1_password",
+      "client": "steam"
+    },
+    {
+      "username": "alt2@example.com",
+      "password": "alt2_password",
+      "client": "steam"
+    }
+  ]
+}
+```
+
+## Outlook
+
+What *may* be coming in future releases is
+
+- support for Linux
+- support for Frontier launcher
+- support for Epic Launcher
+- support for non-standard Steam installations
