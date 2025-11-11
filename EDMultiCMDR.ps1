@@ -1,11 +1,27 @@
 [CmdletBinding()]
 param(
-    [switch]$EditCredentials
+    [switch]$EditCredentials,
+    [switch]$Help
 )
 
 # Greeting shown at script start
 Write-Host "`nEDMultiCMDR - multi-CMDR launch helper"
 Write-Host "======================================`n"
+
+if ($Help) {
+    Write-Host "Usage: powershell -NoProfile -ExecutionPolicy Bypass -File .\EDMultiCMDR.ps1 [options]"
+    Write-Host ""
+    Write-Host "Options:"
+    Write-Host "  -EditCredentials    Open interactive credentials editor"
+    Write-Host "  -Verbose            Show diagnostic output (PowerShell common parameter)"
+    Write-Host "  -Help               Show this help text"
+    Write-Host ""
+    Write-Host "Examples:"
+    Write-Host "  powershell -File .\EDMultiCMDR.ps1 -EditCredentials"
+    Write-Host "  powershell -File .\EDMultiCMDR.ps1 -Verbose"
+    Write-Host ""
+    return
+}
 
 function Initialize-CredentialStore {
     # replaced: no external module required; ensure storage directory exists and set file path
