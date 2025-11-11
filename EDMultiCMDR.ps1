@@ -1,3 +1,5 @@
+#requires -Version 5.1
+
 [CmdletBinding()]
 param(
     [switch]$EditCredentials,
@@ -7,6 +9,13 @@ param(
 # Greeting shown at script start
 Write-Host "`nEDMultiCMDR - multi-CMDR launch helper"
 Write-Host "======================================`n"
+
+# Compatibility note: script targets Windows PowerShell 5.1 (no dependency on PowerShell Core/7).
+# Avoid PowerShell 7+ only constructs (e.g. C-style ternary ?:). The script performs a runtime check below.
+$psver = $PSVersionTable.PSVersion
+if ($psver.Major -lt 5 -or ($psver.Major -eq 5 -and $psver.Minor -lt 1)) {
+    Write-Warning ("EDMultiCMDR is designed for PowerShell 5.1 or later. Current version: {0}. Some features may not work." -f $psver)
+}
 
 if ($Help) {
     Write-Host "Usage: powershell -NoProfile -ExecutionPolicy Bypass -File .\EDMultiCMDR.ps1 [options]"
@@ -72,8 +81,14 @@ function New-EDMultiAccounts {
 			if (-not [string]::IsNullOrWhiteSpace($profileInput)) { $frontierProfile = $profileInput }
 		}
 		# include profile always (empty string when not provided) so all entries have a 'profile' key
+		# also prompt for an optional MinEDLauncher path for Frontier installs
 		$acct = @{ username = $u; password = $enc; client = $client.ToLower() }
 		if ($frontierProfile) { $acct.profile = $frontierProfile } else { $acct.profile = '' }
+		$acct.launcherPath = ''
+		if ($acct.client -eq 'frontier') {
+			$lp = Read-Host "Optional MinEDLauncher path for this account (leave blank to use standard locations)"
+			if (-not [string]::IsNullOrWhiteSpace($lp)) { $acct.launcherPath = $lp }
+		}
 		$accounts += $acct
 		Write-Verbose ("Added account: {0} (client: {1})" -f $u, $client)
 	}
@@ -195,12 +210,44 @@ function Start-EDLaunchForAccount($account, [ref]$globalKnownPids) {
 
 	# --- Frontier launcher support ---
 	if ($account.client -eq 'frontier') {
-		# common candidate locations for MinEdLauncher
-		$candidates = @(
+		# build candidate locations for MinEdLauncher
+		$candidates = @()
+		# prefer account-provided launcherPath when present and valid
+		$accountLauncherProvided = $false
+		$wdFromAccount = $null
+		 if ($account.PSObject.Properties['launcherPath'] -and -not [string]::IsNullOrWhiteSpace($account.launcherPath)) {
+			$accountLauncherProvided = $true
+			try {
+				$ap = $account.launcherPath
+				if (Test-Path $ap) {
+					$item = Get-Item -LiteralPath $ap -ErrorAction SilentlyContinue
+					if ($null -ne $item -and $item.PSIsContainer) {
+						# user supplied a directory -> look for MinEdLauncher.exe inside it
+						$cand = Join-Path $ap 'MinEdLauncher.exe'
+						if (Test-Path $cand) {
+							$candidates += $cand
+							$wdFromAccount = $ap
+						}
+					} else {
+						# user supplied a file path (assume MinEdLauncher.exe) -> use it and its dir as WD
+						$candidates += $ap
+						$wdFromAccount = Split-Path $ap
+					}
+				}
+			} catch {}
+		}
+		# standard fallback locations
+		$candidates += @(
 			"${env:ProgramFiles(x86)}\Elite Dangerous\MinEdLauncher.exe",
 			"${env:ProgramFiles(x86)}\Steam\steamapps\common\Elite Dangerous\MinEdLauncher.exe",
 			"${env:ProgramFiles}\Elite Dangerous\MinEdLauncher.exe"
-		) | Where-Object { $_ -and (Test-Path $_) }
+		)
+		# debug: show initial candidate list (including non-existing) when verbose
+		Write-Verbose ("Initial MinEdLauncher candidates (pre-check): {0}" -f ($candidates -join '; '))
+		# keep only existing paths (preserves ordering so account-supplied path is tried first)
+		$candidates = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+		Write-Verbose ("Available MinEdLauncher candidates (existing): {0}" -f ($candidates -join '; '))
+		Write-Verbose ("Account-provided launcherPath present: {0}" -f $accountLauncherProvided)
 
         if (-not $candidates -or $candidates.Count -eq 0) {
 			Write-Warning "Frontier launcher (MinEdLauncher) not found in common locations. Skipping $($account.username)."
@@ -208,14 +255,16 @@ function Start-EDLaunchForAccount($account, [ref]$globalKnownPids) {
 		}
 
 		$launcherPath = $candidates[0]
-		$wd = Split-Path $launcherPath
+		# prefer working directory from account launcherPath when available (directory or file parent)
+		if ($wdFromAccount) { $wd = $wdFromAccount } else { $wd = Split-Path $launcherPath }
 		# allow optional profile field in credentials JSON to specify the /frontier profile name
 		$profileArg = if ($account.profile) { "/frontier $($account.profile)" } else { "/frontier" }
 		$arglist = @($profileArg, "/autorun", "/autoquit")
 
 		Write-Host "Starting Frontier launcher ($launcherPath) as $($account.username)..."
-		Write-Verbose ("Launcher args: {0}" -f ($arglist -join ' '))
-		Write-Verbose ("Found Frontier launcher at: {0} (working dir: {1})" -f $launcherPath, $wd)
+		Write-Verbose ("Chosen launcherPath: {0}" -f $launcherPath)
+		Write-Verbose ("Working directory: {0}" -f $wd)
+		Write-Verbose ("Launcher args array: {0}" -f ($arglist -join '; '))
 		Write-Verbose ("Will start Frontier with args: {0}" -f ($arglist -join ' '))
 
 		# Prefer Start-Process -Credential (consistent with Steam handling)
@@ -228,8 +277,53 @@ function Start-EDLaunchForAccount($account, [ref]$globalKnownPids) {
 				-PassThru -ErrorAction Stop
 			Write-Verbose ("Start-Process -Credential succeeded for Frontier launcher (PID: {0})." -f $launcherProc.Id)
 		} catch {
-			Write-Warning ("Failed to start Frontier launcher for {0}: {1}" -f $account.username, $_.Exception.Message)
-			return $null
+			$errMsg = $_.Exception.Message -or $_.Exception.ToString()
+			Write-Warning ("Start-Process -Credential failed for {0}: {1}" -f $account.username, $errMsg)
+
+			# If access denied or similar, try ProcessStartInfo fallback (like Steam branch)
+			Write-Verbose "Attempting ProcessStartInfo fallback for Frontier launcher..."
+			try {
+				$psi = New-Object System.Diagnostics.ProcessStartInfo
+				$psi.FileName = $launcherPath
+				$psi.Arguments = ($arglist -join ' ')
+				$psi.WorkingDirectory = $wd
+				$psi.UseShellExecute = $false
+				$psi.UserName = $account.username
+				$psi.Password = $securePass
+				$psi.LoadUserProfile = $true
+				# debug: show prepared ProcessStartInfo properties (after assignment)
+				Write-Verbose ("ProcessStartInfo prepared: FileName={0}, Arguments={1}, WorkingDirectory={2}, UseShellExecute={3}, UserName={4}, LoadUserProfile={5}" -f $psi.FileName, $psi.Arguments, $psi.WorkingDirectory, $psi.UseShellExecute, $psi.UserName, $psi.LoadUserProfile)
+
+				# Populate environment dictionary safely, if available on this runtime
+				$envTarget = $null
+				try { if ($null -ne $psi.EnvironmentVariables) { $envTarget = $psi.EnvironmentVariables } } catch {}
+				try { if ($null -eq $envTarget -and $null -ne $psi.Environment) { $envTarget = $psi.Environment } } catch {}
+				if ($null -ne $envTarget) {
+					Write-Verbose "ProcessStartInfo environment dictionary available; populating from current environment."
+					try { $envTarget.Clear() } catch {}
+					$added = @{ }
+					$currentEnv = [System.Environment]::GetEnvironmentVariables()
+					foreach ($k in $currentEnv.Keys) {
+						$kstr = [string]$k
+						$upper = $kstr.ToUpperInvariant()
+						if (-not $added.ContainsKey($upper)) {
+							try { $envTarget[$kstr] = $currentEnv[$k] } catch {}
+							$added[$upper] = $true
+						}
+					}
+				} else {
+					Write-Verbose "ProcessStartInfo environment dictionary not available; skipping environment sanitization."
+				}
+
+				$launcherProc = [System.Diagnostics.Process]::Start($psi)
+				if (-not $launcherProc) { throw "ProcessStartInfo start returned null" }
+				Write-Verbose ("ProcessStartInfo fallback succeeded for Frontier launcher (PID: {0})." -f $launcherProc.Id)
+			} catch {
+				$fbMsg = $_.Exception.Message -or $_.Exception.ToString()
+				Write-Warning ("Fallback ProcessStartInfo start failed for {0}: {1}" -f $account.username, $fbMsg)
+				Write-Warning "Common causes: insufficient privileges to start interactive process as another user, UAC, or Windows policies. Try running the script elevated or create a per-account scheduled task that runs MinEdLauncher under the target account."
+				return $null
+			}
 		}
 
 		# Wait for new Elite process same as Steam branch
@@ -379,8 +473,11 @@ function Edit-EDMultiCredentials {
                 if ($client.ToLower() -eq 'frontier') {
                     $profInput = Read-Host "Frontier profile name (leave blank to use default)"
                     if (-not [string]::IsNullOrWhiteSpace($profInput)) { $acct.profile = $profInput } else { $acct.profile = '' }
+                    $lp = Read-Host "Optional MinEDLauncher path for this account (leave blank to use standard locations)"
+                    if (-not [string]::IsNullOrWhiteSpace($lp)) { $acct.launcherPath = $lp } else { $acct.launcherPath = '' }
                 } else {
                     $acct.profile = ''
+                    $acct.launcherPath = ''
                 }
                 $accounts += $acct
                 Save-EDMultiCredentials -accounts $accounts
@@ -403,24 +500,51 @@ function Edit-EDMultiCredentials {
                 }
                 $nc = Read-Host "Client [$($a.client)]"
                 if (-not [string]::IsNullOrWhiteSpace($nc)) { $a.client = $nc.ToLower() }
-                # robustly ensure 'profile' exists for all accounts:
+                # robustly ensure 'profile' and 'launcherPath' exist for all accounts:
                 $current = if ($a.PSObject.Properties['profile']) { $a.profile } else { '' }
+                $currentLauncher = if ($a.PSObject.Properties['launcherPath']) { $a.launcherPath } else { '' }
                 if ($a.client -eq 'frontier') {
-                    $nprof = Read-Host ("Profile name [{0}] (leave blank to keep)" -f (if ($current -ne '') { $current } else { 'none' }))
+                    $display = if ($current -ne '') { $current } else { 'none' }
+                    $nprof = Read-Host ("Profile name [{0}] (leave blank to keep)" -f $display)
+                    $displayLauncher = if ($currentLauncher -ne '') { $currentLauncher } else { 'none' }
+                    $nlauncher = Read-Host ("MinEDLauncher path [{0}] (leave blank to keep)" -f $displayLauncher)
                     if (-not [string]::IsNullOrWhiteSpace($nprof)) {
-                        if ($a.PSObject.Properties['profile']) { $a.profile = $nprof } else { $a | Add-Member -NotePropertyName 'profile' -NotePropertyValue $nprof -Force }
+                        if ($a.PSObject.Properties['profile']) {
+                            $a.profile = $nprof
+                        } else {
+                            $a | Add-Member -NotePropertyName 'profile' -NotePropertyValue $nprof -Force
+                        }
                     } elseif (-not $a.PSObject.Properties['profile']) {
                         # create empty profile property if missing
                         $a | Add-Member -NotePropertyName 'profile' -NotePropertyValue '' -Force
                     }
+                    if (-not [string]::IsNullOrWhiteSpace($nlauncher)) {
+                        if ($a.PSObject.Properties['launcherPath']) {
+                            $a.launcherPath = $nlauncher
+                        } else {
+                            $a | Add-Member -NotePropertyName 'launcherPath' -NotePropertyValue $nlauncher -Force
+                        }
+                    } elseif (-not $a.PSObject.Properties['launcherPath']) {
+                        $a | Add-Member -NotePropertyName 'launcherPath' -NotePropertyValue '' -Force
+                    }
                 } else {
-                    # when switching to non-frontier (e.g. steam), keep a profile key but set empty
-                    if ($a.PSObject.Properties['profile']) { $a.profile = '' } else { $a | Add-Member -NotePropertyName 'profile' -NotePropertyValue '' -Force }
-                }
-                $accounts[$idx] = $a
-                Save-EDMultiCredentials -accounts $accounts
-                Write-Host "Edited entry $($idx+1) and saved."
-            }
+                     # when switching to non-frontier (e.g. steam), keep a profile key but set empty
+                     if ($a.PSObject.Properties['profile']) {
+                         $a.profile = ''
+                     } else {
+                         $a | Add-Member -NotePropertyName 'profile' -NotePropertyValue '' -Force
+                     }
+                     # ensure launcherPath present but empty for non-frontier
+                     if ($a.PSObject.Properties['launcherPath']) {
+                         $a.launcherPath = ''
+                     } else {
+                         $a | Add-Member -NotePropertyName 'launcherPath' -NotePropertyValue '' -Force
+                     }
+                 }
+                 $accounts[$idx] = $a
+                 Save-EDMultiCredentials -accounts $accounts
+                 Write-Host "Edited entry $($idx+1) and saved."
+             }
             'r' {
                 if ($parts.Count -lt 2 -or -not [int]::TryParse($parts[1], [ref]$null)) {
                     Write-Warning "Usage: r <number>"

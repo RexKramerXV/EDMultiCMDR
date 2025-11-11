@@ -29,6 +29,10 @@ Describes a method to run concurrently multiple instances of [EDMarketConnector]
 - Add the `/frontier profile-name` argument (and your other desired arguments) to the end of the Target textbox (e.g. `C:\path\to\MinEdLauncher.exe /frontier profile-name /autorun /autoquit`)
 - Click `Ok`
 
+Optional per-account MinEDLauncher path
+
+If your MinEdLauncher.exe is in a non-standard location you can store an optional per-account launcher path in the credentials file (property name "launcherPath"). The interactive editor prompts for this when you add or edit a Frontier account. When the script starts a Frontier account it will try the account's launcherPath first (if provided and exists) and then fallback to the standard locations.
+
 ## What the script does
 
 1. It reads credentials and metadata (Windows logon "username", an encrypted "password" blob, and "client" type ["steam","frontier","epic"]) from a local JSON file stored under %LOCALAPPDATA%\EDMultiCMDR\credentials.json.
@@ -75,7 +79,6 @@ Notes and security considerations
 - Because passwords are DPAPI-encrypted, the file is effectively private to your Windows user account on that machine. If you need to move credentials between machines or users you must re-enter them on the target account.
 - If you want to reset or reinitialize storage, delete %LOCALAPPDATA%\EDMultiCMDR\credentials.json and re-run the script to create a new credentials file.
 - Keep your Windows account secure (strong password, OS updates, disk encryption) because the stored credentials are only protected by the DPAPI tied to that account.
-
 
 ## Editing stored credentials interactively
 
@@ -198,14 +201,35 @@ What *may* be coming in future releases is
     {
       "username": "main@example.com",
       "password": "Encrypted_DPAPI_blob_here",
-      "client": "steam"
+      "client": "steam",
+      "profile": ""
     },
     {
       "username": "frontier.user",
       "password": "Encrypted_DPAPI_blob_here",
       "client": "frontier",
-      "profile": "profile-name"
+      "profile": "profile-name",
+      "launcherPath": "E:\\Elite Dangerous\\MinEdLauncher.exe"
     }
   ]
 }
 ```
+
+## Compatibility
+
+This script targets Windows PowerShell 5.1 (the version shipped with Windows). It does not require PowerShell 7 / PowerShell Core. To keep compatibility the implementation intentionally:
+
+- Avoids PowerShell 7-only syntax (for example, the C-style ternary ?:).
+- Uses ${env:ProgramFiles(x86)} / ${env:ProgramFiles} for environment variables that contain parentheses.
+- Uses only built-in cmdlets available in Windows PowerShell 5.1.
+
+Runtime behavior: the script warns at startup if the running PowerShell version is older than 5.1. If you must run on PowerShell Core/7 the script should still work, but testing is recommended.
+
+Troubleshooting: "Access is denied" when starting Frontier launcher
+
+- If you see an error like "This command cannot be run due to the error: Access is denied." when the script tries to launch MinEdLauncher for a Frontier account, this usually means Windows prevented starting an interactive GUI process under the supplied credential using Start-Process -Credential.
+- The script now attempts a ProcessStartInfo fallback, but if that also fails try one of these mitigations:
+  - Run the script elevated (right-click PowerShell → Run as administrator) and try again.
+  - Ensure the target Windows user account can log on locally / has permissions to start the launcher.
+  - Create a scheduled task that runs MinEdLauncher under the target account (highest compatibility for interactive GUI starting) and invoke that task instead.
+  - Check corporate/group policies / UAC settings which may prevent starting processes under alternate credentials.
