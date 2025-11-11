@@ -1,15 +1,17 @@
 # EDMultiCMDR
 
-Status: November 10, 2025
+Status: November 11, 2025
 
 Script to launch multiple CMDRs under one single login on a Windows computer. Uses [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher), specifically the [multi-account part](https://github.com/rfvgyhn/min-ed-launcher?tab=readme-ov-file#multi-account).
+
+Supports Frontier and Steam launcher. Does not support Epic launcher.
 
 Describes a method to run concurrently multiple instances of [EDMarketConnector](https://github.com/EDCD/EDMarketConnector) (EDMC) tool specific to the CMDRs chosen.
 
 ## Prerequisites
 
 - You have a standard Steam installation of E:D *and/or*
-- You have a standard Frontier launcher installation.
+- You have a standard Frontier launcher installation. You may use your "own" directory for the install of Launcher and App Data, but then you have to let us know where you installed (see "Installation").
 - Optional: you have a standard installation of [EDMarketConnector](https://github.com/EDCD/EDMarketConnector).
 - On your local Windows machine, user accounts exist for every CMDR you'd like to launch.
 - You have installed [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher), and set it up in a way that it runs properly on every account intended to use concurrently, e.g.,
@@ -29,9 +31,9 @@ Describes a method to run concurrently multiple instances of [EDMarketConnector]
 - Add the `/frontier profile-name` argument (and your other desired arguments) to the end of the Target textbox (e.g. `C:\path\to\MinEdLauncher.exe /frontier profile-name /autorun /autoquit`)
 - Click `Ok`
 
-Optional per-account MinEDLauncher path
+### Optional per-account MinEDLauncher path:
 
-If your MinEdLauncher.exe is in a non-standard location you can store an optional per-account launcher path in the credentials file (property name "launcherPath"). The interactive editor prompts for this when you add or edit a Frontier account. When the script starts a Frontier account it will try the account's launcherPath first (if provided and exists) and then fallback to the standard locations.
+If your MinEdLauncher.exe is in a non-standard location (like `D:\EDLaunch\`) you can store an optional per-account launcher path in the credentials file (property name "launcherPath"). The interactive editor prompts for this when you add or edit a Frontier account. When the script starts a Frontier account it will try the account's launcherPath first (if provided and exists) and then fallback to the standard locations.
 
 ## What the script does
 
@@ -47,53 +49,41 @@ If your MinEdLauncher.exe is in a non-standard location you can store an optiona
 
 ## Installation
 
-1. Download the latest release archive from the project's GitHub releases page and extract it to a folder on your machine, e.g. C:\Program Files\EDMultiCMDR or C:\Users\<you>\Apps\EDMultiCMDR.
+1. Download the [latest release](https://github.com/RexKramerXV/EDMultiCMDR/releases) ZIP from the project's GitHub releases page and extract it to a folder on your machine, e.g. `C:\Program Files\EDMultiCMDR` or `C:\Users\<you>\Apps\EDMultiCMDR`.
 2. Create a Windows shortcut for easy access:
    - Right-click the Desktop (or Start menu folder) → New → Shortcut.
    - For the "Target" field use an invocation like:
      `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\path\to\EDMultiCMDR\EDMultiCMDR.ps1"`
    - Optionally set "Start in" to the install folder.
 
-## Credentials storage & initialization
-
-How credentials are handled - in the end, we're dealing with Windows credentials...
-
-- The script stores account entries in a local JSON file under your user profile: %LOCALAPPDATA%\EDMultiCMDR\credentials.json.
-- Passwords are not stored in plaintext. When you enter a password the script converts the SecureString to an encrypted string using PowerShell's ConvertFrom-SecureString (DPAPI). The JSON therefore contains encrypted password blobs.
-- On use, the script converts the encrypted blob back to a SecureString (ConvertTo-SecureString) and builds a PSCredential to pass to Start-Process -Credential. At no point does the script write raw plaintext passwords to disk.
-- The DPAPI encryption ties the stored password string to your Windows user account and machine. That means the encrypted strings can only be decrypted by the same Windows user on the same machine.
-
-First-run initialization (what you must do)
+## First-run initialization (what you must do)
 
 1. Run the script (EDMultiCMDR.ps1). If no credentials file is present the script will prompt you to create accounts.
 1. For each account:
    - Enter the Username (email or local Windows username). Leave blank to finish adding accounts.
    - Enter the Password when prompted. The input is read as a SecureString (hidden) and stored encrypted in the JSON.
    - Enter the Client type (press Enter for default "steam").
+   - `launcherPath`: If you have chosen to install the Frontier Launcher (and App Data) in a non-standard directory, provide it here.
 1. When finished the script writes %LOCALAPPDATA%\EDMultiCMDR\credentials.json containing the account entries with encrypted password strings.
 1. Re-run the script anytime to add/remove accounts. Prefer using the script UI to edit accounts — manual edits to the JSON require you to provide ConvertFrom-SecureString output for passwords.
-
-Notes and security considerations
-
-- No external PowerShell modules are required; the implementation uses built-in ConvertFrom-SecureString/ConvertTo-SecureString (DPAPI).
-- Because passwords are DPAPI-encrypted, the file is effectively private to your Windows user account on that machine. If you need to move credentials between machines or users you must re-enter them on the target account.
-- If you want to reset or reinitialize storage, delete %LOCALAPPDATA%\EDMultiCMDR\credentials.json and re-run the script to create a new credentials file.
-- Keep your Windows account secure (strong password, OS updates, disk encryption) because the stored credentials are only protected by the DPAPI tied to that account.
 
 ## Editing stored credentials interactively
 
 The script provides a built-in interactive editor you can invoke with the -EditCredentials switch. This opens a menu where you can add, edit or remove entries and persist them to the credentials file.
 
 Usage:
+
+```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\EDMultiCMDR.ps1 -EditCredentials
+```
 
 Interactive commands:
 
-- a  : add a new account (prompts for username, password, client; prompts for a Frontier profile when client=frontier). Changes are saved immediately.
-- e N: edit account number N (1-based). You can change username, password, client and frontier profile. Changes are saved immediately.
-- r N: remove account number N. Deletion is saved immediately after confirmation.
-- s  : save current changes and exit (also auto-saved after add/edit/remove).
-- q  : quit the editor (prompts before quitting without saving).
+- `a`  : add a new account (prompts for username, password, client; prompts for a Frontier profile when client=frontier). Changes are saved immediately.
+- `e <number>`: edit account number N (1-based). You can change username, password, client and frontier profile. Changes are saved immediately.
+- `r <number>`: remove account number N. Deletion is saved immediately after confirmation.
+- `s`  : save current changes and exit (also auto-saved after add/edit/remove).
+- `q`  : quit the editor (prompts before quitting without saving).
 
 ## How to launch additional processes
 
@@ -126,7 +116,7 @@ This can be modified to automagically launch EDMC under the ***user running E:D 
 
 **Easiest way to access this file is to log in locally with each CMDR account and work directly under their user access rights - open Steam, modify the launcher command and start it once.** Then,
 
-substitute `"processes": []," with
+substitute `"processes": [],` with
 
 ```json
    "processes": [
@@ -165,33 +155,28 @@ or [EDDI](https://github.com/EDCD/EDDI), or whatever floats your boat.
 
 ## Key functionality and formats
 
-### Steam process launch
+## Notes and security considerations
 
-```powershell
-Write-Host "Starting Steam (steam.exe) as $username..."
-$steamProc = Start-Process -FilePath "C:\Program Files (x86)\Steam\steam.exe" `
-    -ArgumentList '-silent','-gameidlaunch','359320' `
-    -Credential $cred `
-    -WorkingDirectory "C:\Program Files (x86)\Steam" `
-    -PassThru
-```
+- No external PowerShell modules are required; the implementation uses built-in ConvertFrom-SecureString/ConvertTo-SecureString (DPAPI).
+- Because passwords are DPAPI-encrypted, the file is effectively private to your Windows user account on that machine. If you need to move credentials between machines or users you must re-enter them on the target account.
+- If you want to reset or reinitialize storage, delete %LOCALAPPDATA%\EDMultiCMDR\credentials.json and re-run the script to create a new credentials file.
 
-## Debug output
+### Credentials storage & initialization
+
+How credentials are handled - in the end, we're dealing with Windows credentials...
+
+- The script stores account entries in a local JSON file under your user profile: %LOCALAPPDATA%\EDMultiCMDR\credentials.json.
+- Passwords are not stored in plaintext. When you enter a password the script converts the SecureString to an encrypted string using PowerShell's ConvertFrom-SecureString (DPAPI). The JSON therefore contains encrypted password blobs.
+- On use, the script converts the encrypted blob back to a SecureString (ConvertTo-SecureString) and builds a PSCredential to pass to Start-Process -Credential. At no point does the script write raw plaintext passwords to disk.
+- The DPAPI encryption ties the stored password string to your Windows user account and machine. That means the encrypted strings can only be decrypted by the same Windows user on the same machine.
+
+### Debug output
 
 Note: the script emits diagnostic output via PowerShell's Write-Verbose. To see debugging details when running the script, invoke it with -Verbose e.g.:
 
 ```powershell
 powershell -File .\EDMultiCMDR.ps1 -Verbose
 ```
-
-## Outlook
-
-What *may* be coming in future releases is
-
-- robust support for Frontier launcher
-- support for Epic Launcher
-- support for non-standard Steam installations
-- support for Linux
 
 ### Local JSON credential file (current)
 
@@ -224,12 +209,3 @@ This script targets Windows PowerShell 5.1 (the version shipped with Windows). I
 - Uses only built-in cmdlets available in Windows PowerShell 5.1.
 
 Runtime behavior: the script warns at startup if the running PowerShell version is older than 5.1. If you must run on PowerShell Core/7 the script should still work, but testing is recommended.
-
-Troubleshooting: "Access is denied" when starting Frontier launcher
-
-- If you see an error like "This command cannot be run due to the error: Access is denied." when the script tries to launch MinEdLauncher for a Frontier account, this usually means Windows prevented starting an interactive GUI process under the supplied credential using Start-Process -Credential.
-- The script now attempts a ProcessStartInfo fallback, but if that also fails try one of these mitigations:
-  - Run the script elevated (right-click PowerShell → Run as administrator) and try again.
-  - Ensure the target Windows user account can log on locally / has permissions to start the launcher.
-  - Create a scheduled task that runs MinEdLauncher under the target account (highest compatibility for interactive GUI starting) and invoke that task instead.
-  - Check corporate/group policies / UAC settings which may prevent starting processes under alternate credentials.
