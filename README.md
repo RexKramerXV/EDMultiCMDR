@@ -31,7 +31,7 @@ Describes a method to run concurrently multiple instances of [EDMarketConnector]
 - Add the `/frontier profile-name` argument (and your other desired arguments) to the end of the Target textbox (e.g. `C:\path\to\MinEdLauncher.exe /frontier profile-name /autorun /autoquit`)
 - Click `Ok`
 
-### Optional per-account MinEDLauncher path:
+### Optional per-account MinEDLauncher path
 
 If your MinEdLauncher.exe is in a non-standard location (like `D:\EDLaunch\`) you can store an optional per-account launcher path in the credentials file (property name "launcherPath"). The interactive editor prompts for this when you add or edit a Frontier account. When the script starts a Frontier account it will try the account's launcherPath first (if provided and exists) and then fallback to the standard locations.
 
