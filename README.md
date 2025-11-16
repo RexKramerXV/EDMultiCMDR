@@ -2,20 +2,21 @@
 
 Launch multiple Elite Dangerous commanders concurrently from one Windows login using MinEDLauncher (Steam or Frontier). Scripted in PowerShell for a fast, repeatable startup flow.
 
+![EDMultiCMDR overview](3CMDRs+YT.png)
+
 ## What it does
 
 - Start selected accounts with MinEDLauncher multi-account support and auto-login.
 - Store account metadata in `%LOCALAPPDATA%\EDMultiCMDR\credentials.json` with DPAPI-encrypted passwords.
 - Support Steam and Frontier clients, including optional Frontier profiles and per-account `launcherPath` overrides.
 - Optionally trigger EDMarketConnector or other tools via MinEDLauncher `processes` hooks.
-- Targets Windows PowerShell 5.1; no third-party PowerShell modules required.
 
 ## Requirements
 
-- Windows with PowerShell 5.1 or later.
 - Elite Dangerous installed via Steam and/or Frontier launcher (Epic is not supported).
 - MinEDLauncher installed and working for each account (run once per account manually to verify).
 - Optional: companion apps such as EDMarketConnector, VoiceAttack, EDDiscovery, or EDDI.
+- Windows with PowerShell 5.1 or later (comes pre-installed with Windows 10 and 11)
 
 ## Set up MinEDLauncher
 
@@ -65,11 +66,6 @@ Launch multiple Elite Dangerous commanders concurrently from one Windows login u
 - Use `-Verbose` to see credential loading, account selection, and process wait details.
 - Verify `launcherPath` for Frontier accounts if the script cannot find MinEDLauncher.
 - Delete `%LOCALAPPDATA%\EDMultiCMDR\credentials.json` and re-run the script if the credential file becomes corrupted.
-
-## Compatibility
-
-- Built for Windows PowerShell 5.1; it should also run on PowerShell 7, though 5.1 is the target environment.
-- No external PowerShell modules are used.
 
 ## License
 
