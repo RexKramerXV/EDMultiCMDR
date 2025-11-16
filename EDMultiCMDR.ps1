@@ -3,7 +3,8 @@
 [CmdletBinding()]
 param(
 	[switch]$EditCredentials,
-	[switch]$Help
+	[switch]$Help,
+	[string]$Launch
 )
 
 # Greeting shown at script start
@@ -22,11 +23,13 @@ if ($Help) {
 	Write-Host ""
 	Write-Host "Options:"
 	Write-Host "  -EditCredentials    Open interactive credentials editor"
+	Write-Host "  -Launch <selection>  Select accounts non-interactively (e.g. -Launch 1,3-5)"
 	Write-Host "  -Verbose            Show diagnostic output (PowerShell common parameter)"
 	Write-Host "  -Help               Show this help text"
 	Write-Host ""
 	Write-Host "Examples:"
 	Write-Host "  powershell -File .\EDMultiCMDR.ps1 -EditCredentials"
+	Write-Host "  powershell -File .\EDMultiCMDR.ps1 -Launch 1,3-5"
 	Write-Host "  powershell -File .\EDMultiCMDR.ps1 -Verbose"
 	Write-Host ""
 	return
@@ -99,6 +102,92 @@ function New-EDMultiAccounts {
 	return $accounts
 }
 
+function Resolve-AccountSelection {
+	param(
+		[string]$Input,
+		[array]$Accounts
+	)
+
+	if (-not $Accounts -or $Accounts.Count -eq 0) { return @() }
+
+	Write-Verbose ("Resolve-AccountSelection invoked. Raw input: '{0}'" -f $Input)
+
+	if ([string]::IsNullOrWhiteSpace($Input)) {
+		Write-Verbose "Selection input empty; defaulting to all accounts."
+		return [int[]](0..($Accounts.Count - 1))
+	}
+
+	$selTrim = $Input.Trim()
+	Write-Verbose ("Trimmed selection input: '{0}'" -f $selTrim)
+	if ($selTrim.ToLowerInvariant() -eq 'all') {
+		Write-Verbose "Selection input equals 'all'; using every account."
+		return [int[]](0..($Accounts.Count - 1))
+	}
+
+	$idxSet = New-Object System.Collections.Generic.HashSet[int]
+	$tokens = $selTrim -split '\s*,\s*' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+	if ($tokens.Count -eq 0) {
+		Write-Verbose "No tokens parsed from selection input."
+		return $null
+	}
+	Write-Verbose ("Parsed selection tokens: {0}" -f ($tokens -join ', '))
+
+	foreach ($tok in $tokens) {
+		$t = $tok.Trim()
+		if ($t -match '^(?<a>\d+)\s*-\s*(?<b>\d+)$') {
+			try {
+				$a = [int]$Matches['a'] - 1
+				$b = [int]$Matches['b'] - 1
+			}
+			catch {
+				Write-Warning "Could not parse range token '$t'."
+				continue
+			}
+			if ($a -gt $b) {
+				Write-Warning "Ignored range '$t' because start > end."
+				continue
+			}
+			for ($n = $a; $n -le $b; $n++) {
+				if ($n -ge 0 -and $n -lt $Accounts.Count) {
+					$idxSet.Add($n) | Out-Null
+				}
+				else {
+					Write-Warning ("Index {0} in range '{1}' out of bounds (valid: 1-{2})." -f ($n + 1), $t, $Accounts.Count)
+				}
+			}
+			Write-Verbose ("Range token '{0}' resolved to indices {1}-{2} (0-based)." -f $t, $a, $b)
+		}
+		elseif ($t -match '^\d+$') {
+			try {
+				$n = [int]$t - 1
+			}
+			catch {
+				Write-Warning "Could not parse numeric token '$t'."
+				continue
+			}
+			if ($n -ge 0 -and $n -lt $Accounts.Count) {
+				$idxSet.Add($n) | Out-Null
+				Write-Verbose ("Added index {0} for token '{1}'" -f $n, $t)
+			}
+			else {
+				Write-Warning ("Index '{0}' out of range (valid: 1-{1})." -f $t, $Accounts.Count)
+			}
+		}
+		else {
+			Write-Warning "Ignored token '$t' (not a valid number or range)."
+		}
+	}
+
+	if ($idxSet.Count -gt 0) {
+		$result = $idxSet | Sort-Object
+		$result = [int[]]$result
+		Write-Verbose ("Resolve-AccountSelection returning indices: {0}" -f ($result -join ', '))
+		return $result
+	}
+
+	return $null
+}
+
 function Select-Accounts([array]$accounts) {
 	Write-Verbose ("Select-Accounts invoked; accounts.Count = {0}" -f $accounts.Count)
 	Write-Host "Available accounts:"
@@ -112,74 +201,10 @@ function Select-Accounts([array]$accounts) {
 	while ($true) {
 		$sel = Read-Host "Select accounts to start (comma/range: e.g. 1,3,5-7) [default: all]"
 		Write-Verbose ("User input for selection: '{0}'" -f $sel)
-		if ([string]::IsNullOrWhiteSpace($sel)) {
-			Write-Verbose "No input given; defaulting to all accounts."
-			return [int[]](0..($accounts.Count - 1))
+		$indices = Resolve-AccountSelection -Input $sel -Accounts $accounts
+		if ($indices -and $indices.Count -gt 0) {
+			return $indices
 		}
-
-		$selTrim = $sel.Trim()
-		Write-Verbose ("Trimmed input: '{0}'" -f $selTrim)
-		if ($selTrim.ToLowerInvariant() -eq 'all') {
-			Write-Verbose "User entered 'all' (case-insensitive). Returning all indices."
-			return [int[]](0..($accounts.Count - 1))
-		}
-
-		$idxSet = New-Object System.Collections.Generic.HashSet[int]
-
-		# Split on commas; accept tokens like "2" or "2-5". Tolerate spaces.
-		$tokens = $selTrim -split '\s*,\s*' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-		Write-Verbose ("Parsed tokens: {0}" -f ($tokens -join ', '))
-
-		foreach ($tok in $tokens) {
-			$t = $tok.Trim()
-			if ($t -match '^(?<a>\d+)\s*-\s*(?<b>\d+)$') {
-				# range token (1-based input)
-				try {
-					$a = [int]$Matches['a'] - 1
-					$b = [int]$Matches['b'] - 1
-				}
-				catch {
-					Write-Warning "Could not parse range token '$t'."
-					continue
-				}
-				if ($a -gt $b) {
-					Write-Warning "Ignored range '$t' because start > end."
-					continue
-				}
-				for ($n = $a; $n -le $b; $n++) {
-					if ($n -ge 0 -and $n -lt $accounts.Count) { $idxSet.Add($n) | Out-Null }
-				}
-				Write-Verbose ("Interpreted range token '{0}' -> {1}-{2}" -f $t, $a, $b)
-			}
-			elseif ($t -match '^\d+$') {
-				# single number token (1-based input)
-				try {
-					$n = [int]$t - 1
-				}
-				catch {
-					Write-Warning "Could not parse numeric token '$t'."
-					continue
-				}
-				if ($n -ge 0 -and $n -lt $accounts.Count) {
-					$idxSet.Add($n) | Out-Null
-					Write-Verbose ("Added index {0} for token '{1}'" -f $n, $t)
-				}
-				else {
-					Write-Warning ("Index '{0}' out of range (valid: 1-{1})." -f $t, $accounts.Count)
-				}
-			}
-			else {
-				Write-Warning "Ignored token '$t' (not a valid number or range)."
-			}
-		}
-
-		if ($idxSet.Count -gt 0) {
-			$result = $idxSet | Sort-Object
-			$result = [int[]]$result
-			Write-Verbose ([string]::Format("Returning selected indices (0-based): {0}", ($result -join ', ')))
-			return $result
-		}
-
 		Write-Warning "No valid selection parsed. Try e.g. 'all', '1', '1,3', or '2-4'."
 	}
 }
@@ -624,7 +649,19 @@ if (-not $accounts -or $accounts.Count -eq 0) {
 # >>> Ensure array <<<
 $accounts = @($accounts)
 
-$selectedIdx = Select-Accounts -accounts $accounts
+$selectedIdx = $null
+if ($PSBoundParameters.ContainsKey('Launch')) {
+	Write-Verbose ("-Launch parameter specified: '{0}'" -f $Launch)
+	$selectedIdx = Resolve-AccountSelection -Input $Launch -Accounts $accounts
+	if (-not $selectedIdx -or $selectedIdx.Count -eq 0) {
+		Write-Error "Could not parse -Launch selection. Use values like 'all', '1', '1,3', or '2-4'."
+		exit 1
+	}
+}
+else {
+	$selectedIdx = Select-Accounts -accounts $accounts
+}
+
 $selectedIdx = @($selectedIdx)   # ensure array semantics even if single value
 Write-Verbose ("Selected indices after wrapping: {0}" -f ($selectedIdx -join ', '))
 if ($null -eq $selectedIdx -or $selectedIdx.Count -eq 0) {

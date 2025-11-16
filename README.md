@@ -43,7 +43,8 @@ Launch multiple Elite Dangerous commanders concurrently from one Windows login u
   - Detects already-running Elite Dangerous processes.
   - Starts MinEDLauncher for each selected account and waits for the new game process.
   - Closes the launcher process it started (Steam/Frontier) to allow multiple concurrent sessions.
-- Useful options: `-Help` (usage), `-Verbose` (diagnostics), `-EditCredentials` (manage accounts only).
+- Useful options: `-Help` (usage), `-Verbose` (diagnostics), `-EditCredentials` (manage accounts only), `-Launch <selection>` (skip the prompt by supplying values like `-Launch 1,3-5` or `-Launch all`).
+- Example: `powershell -File .\EDMultiCMDR.ps1 -Launch 2-3` starts the 2nd and 3rd configured commanders immediately. Good for shortcuts.
 
 ## Auto-launch companion apps (optional)
 
