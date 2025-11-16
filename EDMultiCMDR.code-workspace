@@ -11,7 +11,10 @@
 		"editor.formatOnSave": true,
 		"editor.defaultFormatter": "ms-vscode.powershell",
 		"files.trimTrailingWhitespace": true,
-		"files.insertFinalNewline": true
+		"files.insertFinalNewline": true,
+		"[markdown]": {
+			"editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
+		}
 	},
 	"extensions": {
 		"recommendations": [

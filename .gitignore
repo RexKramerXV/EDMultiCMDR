@@ -1,9 +1,9 @@
 # local secrets, if any
 .secrets.json
-.env 
+.env
 
-# storage for furher ideas
-parking_lot.md
+# local files
+local/
 
 # Visual Studio Code settings
 .vscode/
