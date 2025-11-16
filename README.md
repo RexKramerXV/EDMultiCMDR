@@ -1,12 +1,12 @@
 # EDMultiCMDR
 
-Launch multiple Elite Dangerous commanders concurrently from one Windows login using MinEDLauncher (Steam or Frontier). Scripted in PowerShell for a fast, repeatable startup flow.
+Launch multiple Elite Dangerous commanders concurrently from one Windows login using [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher) (Steam or Frontier). Scripted in PowerShell for a fast, repeatable startup flow.
 
 ![EDMultiCMDR overview](3CMDRs+YT.png)
 
 ## What it does
 
-- Start selected accounts with MinEDLauncher multi-account support and auto-login.
+- Start selected accounts with [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher) multi-account support and auto-login.
 - Store account metadata in `%LOCALAPPDATA%\EDMultiCMDR\credentials.json` with DPAPI-encrypted passwords.
 - Support Steam and Frontier clients, including optional Frontier profiles and per-account `launcherPath` overrides.
 - Optionally trigger EDMarketConnector or other tools via MinEDLauncher `processes` hooks.
@@ -14,7 +14,7 @@ Launch multiple Elite Dangerous commanders concurrently from one Windows login u
 ## Requirements
 
 - Elite Dangerous installed via Steam and/or Frontier launcher (Epic is not supported).
-- MinEDLauncher installed and working for each account (run once per account manually to verify).
+- [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher) installed and working for each account (***run it once per account manually to verify***).
 - Optional: companion apps such as EDMarketConnector, VoiceAttack, EDDiscovery, or EDDI.
 - Windows with PowerShell 5.1 or later (comes pre-installed with Windows 10 and 11)
 
@@ -58,11 +58,12 @@ Launch multiple Elite Dangerous commanders concurrently from one Windows login u
 ]
 ```
 
-- Add further entries for tools like VoiceAttack, EDDiscovery, or EDDI as desired.
+- Add further entries for tools like [VoiceAttack](https://voiceattack.com/), [EDDiscovery](https://github.com/EDDiscovery/EDDiscovery/wiki), or [EDDI](https://github.com/EDCD/EDDI) as desired.
 
 ## Troubleshooting
 
-- Ensure each account has launched Elite Dangerous at least once directly through its launcher.
+- Ensure each Windows account has launched Elite Dangerous at least once directly through its launcher.
+- Follow the [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher) installation instructions, specifically the [multi-account part](https://github.com/rfvgyhn/min-ed-launcher?tab=readme-ov-file#multi-account).
 - Use `-Verbose` to see credential loading, account selection, and process wait details.
 - Verify `launcherPath` for Frontier accounts if the script cannot find MinEDLauncher.
 - Delete `%LOCALAPPDATA%\EDMultiCMDR\credentials.json` and re-run the script if the credential file becomes corrupted.
