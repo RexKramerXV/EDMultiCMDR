@@ -1,0 +1,6 @@
+# which files to include in release ZIP
+
+EDMultiCMDR.ps1
+LICENSE
+README.md
+settings.examples.json

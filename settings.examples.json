@@ -1,0 +1,21 @@
+{
+    "apiUri": "https://api.zaonce.net",
+    "watchForCrashes": false,
+    "language": null,
+    "autoUpdate": true,
+    "checkForLauncherUpdates": true,
+    "maxConcurrentDownloads": 4,
+    "forceUpdate": "",
+    "processes": [
+        {
+            "fileName": "C:\\Program Files (x86)\\EDMarketConnector\\EDMarketConnector.exe",
+            "arguments": "--force-localserver-for-auth"
+        }
+    ],
+    "shutdownProcesses": [],
+    "filterOverrides": [
+        { "sku": "FORC-FDEV-DO-1000", "filter": "edo" },
+        { "sku": "FORC-FDEV-DO-38-IN-40", "filter": "edh4" }
+    ],
+    "additionalProducts": []
+}

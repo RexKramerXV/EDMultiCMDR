@@ -1,0 +1,22 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"powershell.powerShellDefaultVersion": "Windows PowerShell (x64)",
+		"terminal.integrated.defaultProfile.windows": "Windows PowerShell",
+		"powershell.scriptAnalysis.enable": true,
+		"editor.formatOnSave": true,
+		"editor.defaultFormatter": "ms-vscode.powershell",
+		"files.trimTrailingWhitespace": true,
+		"files.insertFinalNewline": true
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-vscode.PowerShell",
+			"streetsidesoftware.code-spell-checker"
+		]
+	}
+}
