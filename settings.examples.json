@@ -10,6 +10,12 @@
         {
             "fileName": "C:\\Program Files (x86)\\EDMarketConnector\\EDMarketConnector.exe",
             "arguments": "--force-localserver-for-auth"
+        },
+        {
+            "fileName": "C:\\Program Files\\VoiceAttack\\VoiceAttack.exe"
+        },
+        {
+            "fileName": "C:\\Program Files\\EDDiscovery\\EDDiscovery.exe"
         }
     ],
     "shutdownProcesses": [],
