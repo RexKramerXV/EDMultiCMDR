@@ -1,6 +1,6 @@
 # EDMultiCMDR
 
-Launch multiple Elite Dangerous commanders concurrently from one Windows login using [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher) (Steam or Frontier). Scripted in PowerShell for a fast, repeatable startup flow.
+Launch multiple Elite Dangerous commanders concurrently from one Windows login using [MinEDLauncher](https://github.com/rfvgyhn/min-ed-launcher) (Steam or Frontier). Have each CMDR use their own set of tools, in their context (like EDMarketConnector and plugins).
 
 ![EDMultiCMDR overview](3CMDRs+YT.png)
 
