@@ -7,14 +7,14 @@ Usage:
 The script drops release archives under ./dist.
 #>
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
 [CmdletBinding()]
 param(
     [ValidatePattern('^v?\d+\.\d+\.\d+$')]
     [string]$Version
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 $repoRoot = $PSScriptRoot
 $distDir = Join-Path $repoRoot 'dist'
@@ -56,9 +56,9 @@ foreach ($entry in $entries) {
     $hasWildcard = [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($searchPath)
 
     if ($hasWildcard) {
-        $matches = Get-ChildItem -Path $searchPath -File -Recurse -ErrorAction SilentlyContinue
-        if ($matches) {
-            $pathsToPackage += $matches.FullName
+        $fileMatches = Get-ChildItem -Path $searchPath -File -Recurse -ErrorAction SilentlyContinue
+        if ($fileMatches) {
+            $pathsToPackage += $fileMatches.FullName
         }
         else {
             Write-Warning "Pattern '$entry' did not match any files."
