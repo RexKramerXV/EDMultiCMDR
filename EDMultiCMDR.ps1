@@ -629,7 +629,8 @@ function Edit-EDMultiCredentials {
 	}
 }
 
-# initialize credential store early so edit-only path has file location
+
+# Initialize credential store after help check, before edit credentials
 Initialize-CredentialStore
 
 # If user requested only to edit credentials, do so and exit

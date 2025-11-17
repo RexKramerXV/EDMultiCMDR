@@ -33,7 +33,7 @@ Launch multiple Elite Dangerous commanders concurrently from one Windows login u
 
 - Run the script; if no credentials exist you will be prompted to add Windows accounts credentials and required launch properties.
 - Captured fields: `username`, `password` (encrypted), `client` (`steam` or `frontier`), optional Frontier `profile`, and optional `launcherPath` when the launcher is not in its default location.
-- You must provide the Windows user names and passwords of the accounts (local or Microsoft accounts).Windows account's user names and passwords are stored in the same way MinEDLauncher stores your Steam, Frontier and Epic passwords. Pick your poison, and see [notes on security below](#notes-and-security-considerations).
+- You must provide the Windows user names and passwords of the accounts (local or Microsoft accounts). Windows account's user names and passwords are stored in the same way MinEDLauncher stores your Steam, Frontier and Epic passwords. Pick your poison, and see [notes on security below](#notes-and-security-considerations).
 - Credentials are stored at `%LOCALAPPDATA%\EDMultiCMDR\credentials.json` using DPAPI, so they can only be decrypted by the same Windows user on the same machine.
 - Use `-EditCredentials` to add or update entries later. Delete the credentials file to start fresh if needed.
 
