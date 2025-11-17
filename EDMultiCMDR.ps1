@@ -104,20 +104,20 @@ function New-EDMultiAccounts {
 
 function Resolve-AccountSelection {
 	param(
-		[string]$Input,
+		[string]$SelectionText,
 		[array]$Accounts
 	)
 
 	if (-not $Accounts -or $Accounts.Count -eq 0) { return @() }
 
-	Write-Verbose ("Resolve-AccountSelection invoked. Raw input: '{0}'" -f $Input)
+	Write-Verbose ("Resolve-AccountSelection invoked. Raw input: '{0}'" -f $SelectionText)
 
-	if ([string]::IsNullOrWhiteSpace($Input)) {
+	if ([string]::IsNullOrWhiteSpace($SelectionText)) {
 		Write-Verbose "Selection input empty; defaulting to all accounts."
 		return [int[]](0..($Accounts.Count - 1))
 	}
 
-	$selTrim = $Input.Trim()
+	$selTrim = $SelectionText.Trim()
 	Write-Verbose ("Trimmed selection input: '{0}'" -f $selTrim)
 	if ($selTrim.ToLowerInvariant() -eq 'all') {
 		Write-Verbose "Selection input equals 'all'; using every account."
@@ -201,8 +201,8 @@ function Select-Accounts([array]$accounts) {
 	while ($true) {
 		$sel = Read-Host "Select accounts to start (comma/range: e.g. 1,3,5-7) [default: all]"
 		Write-Verbose ("User input for selection: '{0}'" -f $sel)
-		$indices = Resolve-AccountSelection -Input $sel -Accounts $accounts
-		if ($indices -and $indices.Count -gt 0) {
+		$indices = Resolve-AccountSelection -SelectionText $sel -Accounts $accounts
+		if ($null -ne $indices -and $indices.Count -gt 0) {
 			return $indices
 		}
 		Write-Warning "No valid selection parsed. Try e.g. 'all', '1', '1,3', or '2-4'."
@@ -652,8 +652,8 @@ $accounts = @($accounts)
 $selectedIdx = $null
 if ($PSBoundParameters.ContainsKey('Launch')) {
 	Write-Verbose ("-Launch parameter specified: '{0}'" -f $Launch)
-	$selectedIdx = Resolve-AccountSelection -Input $Launch -Accounts $accounts
-	if (-not $selectedIdx -or $selectedIdx.Count -eq 0) {
+	$selectedIdx = Resolve-AccountSelection -SelectionText $Launch -Accounts $accounts
+	if ($null -eq $selectedIdx -or $selectedIdx.Count -eq 0) {
 		Write-Error "Could not parse -Launch selection. Use values like 'all', '1', '1,3', or '2-4'."
 		exit 1
 	}
