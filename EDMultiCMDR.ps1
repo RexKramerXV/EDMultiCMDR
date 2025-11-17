@@ -629,6 +629,9 @@ function Edit-EDMultiCredentials {
 	}
 }
 
+# initialize credential store early so edit-only path has file location
+Initialize-CredentialStore
+
 # If user requested only to edit credentials, do so and exit
 if ($EditCredentials) {
 	Edit-EDMultiCredentials
@@ -636,7 +639,6 @@ if ($EditCredentials) {
 }
 
 # --- main flow ---
-Initialize-CredentialStore
 
 $accounts = Get-EDMultiCredentials
 if (-not $accounts -or $accounts.Count -eq 0) {
