@@ -31,15 +31,16 @@ Launch multiple Elite Dangerous commanders concurrently from one Windows login u
 
 ## Configure accounts (first run)
 
-- Run the script; if no credentials exist you will be prompted to add Windows accounts credentials and required launch properties.
-- Captured fields: `username`, `password` (encrypted), `client` (`steam` or `frontier`), optional Frontier `profile`, and optional `launcherPath` when the launcher is not in its default location.
-- You must provide the Windows user names and passwords of the accounts (local or Microsoft accounts). Windows account user names and passwords are stored in the same way MinEDLauncher stores your Steam, Frontier and Epic passwords. Pick your poison, and see [notes on security below](#notes-and-security-considerations).
+- Run the script; if no credentials exist you will be prompted to set launch details for the current Windows account and to add any additional Windows accounts you want to run under.
+- Captured fields: for stored accounts: `username`, `password` (encrypted), `client` (`steam` or `frontier`), optional Frontier `profile`, and optional `launcherPath` when the launcher is not in its default location. For the current Windows account, only `client`, optional `profile`, and optional `launcherPath` are kept—no Windows credentials are stored.
+- For additional accounts (not the logged-in one) you must provide the Windows user names and passwords (local or Microsoft accounts). Windows account user names and passwords are stored in the same way MinEDLauncher stores your Steam, Frontier and Epic passwords. Pick your poison, and see [notes on security below](#notes-and-security-considerations).
 - Credentials are stored at `%LOCALAPPDATA%\EDMultiCMDR\credentials.json` using DPAPI, so they can only be decrypted by the same Windows user on the same machine.
 - Use `-EditCredentials` to add or update entries later. Delete the credentials file to start fresh if needed.
 
 ## Run the launcher
 
 - Start the script normally or via your shortcut.
+- Account selection lists the current Windows account separately from stored accounts (shown as "Current account:" then "Stored accounts:").
 - Select which accounts to start (supports comma/range selection or `all`). The script:
   - Detects already-running Elite Dangerous processes.
   - Starts MinEDLauncher for each selected account and waits for the new game process.
@@ -73,9 +74,10 @@ Launch multiple Elite Dangerous commanders concurrently from one Windows login u
 ## Notes and security considerations
 
 - No external PowerShell modules are required; the implementation uses built-in ConvertFrom-SecureString/ConvertTo-SecureString (DPAPI).
+- The current Windows account entry stores only launch metadata (client/profile/launcherPath); no Windows password is captured for it.
 - Because passwords are DPAPI-encrypted, the file is effectively private to your Windows user account on that machine. If you need to move credentials between machines or users you must re-enter them on the target account.
 - If you want to reset or reinitialize storage, delete `%LOCALAPPDATA%\EDMultiCMDR\credentials.json` and re-run the script to create a new credentials file.
-- The script stores Windows account entries in a local JSON file under your user profile: `%LOCALAPPDATA%\EDMultiCMDR\credentials.json`.
+- The script stores Windows account entries (and current-account launcher metadata) in a local JSON file under your user profile: `%LOCALAPPDATA%\EDMultiCMDR\credentials.json`.
 - Passwords are not stored in plaintext. When you enter a password the script converts the SecureString to an encrypted string using PowerShell's ConvertFrom-SecureString (DPAPI). The JSON therefore contains encrypted password blobs.
 - On use, the script converts the encrypted blob back to a SecureString (ConvertTo-SecureString) and builds a PSCredential to pass to Start-Process -Credential. At no point does the script write raw plaintext passwords to disk.
 - The DPAPI encryption ties the stored password string to your Windows user account and machine. That means the encrypted strings can only be decrypted by the same Windows user on the same machine.
