@@ -18,6 +18,8 @@ if ($psver.Major -lt 5 -or ($psver.Major -eq 5 -and $psver.Minor -lt 1)) {
 	Write-Warning ("EDMultiCMDR is designed for PowerShell 5.1 or later. Current version: {0}. Some features may not work." -f $psver)
 }
 
+$script:CurrentAccountInfo = $null
+
 if ($Help) {
 	Write-Host "Usage: powershell -NoProfile -ExecutionPolicy Bypass -File .\EDMultiCMDR.ps1 [options]"
 	Write-Host ""
@@ -50,8 +52,17 @@ function Get-EDMultiCredentials {
 		$json = Get-Content -Path $script:EDMultiCredFile -Raw -ErrorAction Stop
 		Write-Verbose "Read credentials file content (length: $($json.Length) chars)."
 		$obj = $json | ConvertFrom-Json -ErrorAction Stop
-		Write-Verbose ("Parsed JSON. Entries present: {0}" -f ($obj.EDMultiCMDR.Count -as [int]))
-		return $obj.EDMultiCMDR
+		if ($obj -and $obj.PSObject.Properties['CurrentAccount']) {
+			$script:CurrentAccountInfo = $obj.CurrentAccount
+			Write-Verbose "Loaded current account launch metadata from credentials file."
+		}
+		else {
+			$script:CurrentAccountInfo = $null
+		}
+		$acctData = @()
+		if ($obj.PSObject.Properties['EDMultiCMDR'] -and $obj.EDMultiCMDR) { $acctData = $obj.EDMultiCMDR }
+		Write-Verbose ("Parsed JSON. Entries present: {0}" -f ($acctData.Count -as [int]))
+		return $acctData
 	}
  catch {
 		Write-Warning "Could not read credentials file (corrupt JSON?): $($_.Exception.Message)"
@@ -59,11 +70,84 @@ function Get-EDMultiCredentials {
 	}
 }
 
-function Save-EDMultiCredentials([array]$accounts) {
+function Save-EDMultiCredentials {
+	param(
+		[array]$accounts,
+		$currentAccount
+	)
 	# accounts contain password as encrypted string (ConvertFrom-SecureString)
-	$payload = @{ EDMultiCMDR = $accounts } | ConvertTo-Json -Depth 5
-	$payload | Out-File -FilePath $script:EDMultiCredFile -Encoding UTF8 -Force
-	Write-Verbose ("Saved {0} account(s) to {1}" -f $accounts.Count, $script:EDMultiCredFile)
+	if (-not $PSBoundParameters.ContainsKey('currentAccount')) {
+		$currentAccount = $script:CurrentAccountInfo
+	}
+
+	$payload = @{ EDMultiCMDR = $accounts }
+	if ($null -ne $currentAccount) { $payload.CurrentAccount = $currentAccount }
+	$payloadJson = $payload | ConvertTo-Json -Depth 5
+	$payloadJson | Out-File -FilePath $script:EDMultiCredFile -Encoding UTF8 -Force
+	Write-Verbose ("Saved {0} stored account(s) to {1}" -f $accounts.Count, $script:EDMultiCredFile)
+}
+
+function Set-CurrentAccountMetadata {
+	param($existing)
+
+	$currUser = [System.Environment]::UserName
+	Write-Host "Configure launch settings for the current Windows account ($currUser). No Windows password is stored for this entry."
+	$defaultClient = if ($existing -and $existing.client) { $existing.client } else { 'steam' }
+	$client = Read-Host ("Client type (steam/frontier) [default: {0}]" -f $defaultClient)
+	if ([string]::IsNullOrWhiteSpace($client)) { $client = $defaultClient }
+	$client = $client.ToLower()
+
+	$frontier_profile = ''
+	$launcherPath = ''
+	if ($existing -and $existing.PSObject.Properties['profile']) { $frontier_profile = $existing.profile }
+	if ($existing -and $existing.PSObject.Properties['launcherPath']) { $launcherPath = $existing.launcherPath }
+
+	if ($client -eq 'frontier') {
+		$profDisplay = if ($frontier_profile) { $frontier_profile } else { 'default' }
+		$profInput = Read-Host ("Frontier profile name [{0}] (leave blank for default)" -f $profDisplay)
+		if (-not [string]::IsNullOrWhiteSpace($profInput)) { $frontier_profile = $profInput }
+		$launcherDisplay = if ($launcherPath) { $launcherPath } else { 'none' }
+		$lp = Read-Host ("MinEDLauncher path override [{0}] (leave blank to keep)" -f $launcherDisplay)
+		if (-not [string]::IsNullOrWhiteSpace($lp)) { $launcherPath = $lp }
+	}
+	else {
+		# non-Frontier clients do not use profile/launcherPath
+		$frontier_profile = ''
+		$launcherPath = ''
+	}
+
+	return [PSCustomObject]@{ client = $client; profile = $frontier_profile; launcherPath = $launcherPath }
+}
+
+function Get-AvailableAccounts($currentAccount, [array]$storedAccounts) {
+	$list = @()
+	if ($currentAccount) {
+		$frontier_profile = if ($currentAccount.PSObject.Properties['profile']) { $currentAccount.profile } else { '' }
+		$launcherPath = if ($currentAccount.PSObject.Properties['launcherPath']) { $currentAccount.launcherPath } else { '' }
+		$list += [PSCustomObject]@{
+			username         = [System.Environment]::UserName
+			password         = $null
+			client           = $currentAccount.client
+			profile          = $frontier_profile
+			launcherPath     = $launcherPath
+			IsCurrentAccount = $true
+		}
+	}
+
+	foreach ($acct in $storedAccounts) {
+		$profileVal = if ($acct.PSObject.Properties['profile']) { $acct.profile } else { '' }
+		$launcherVal = if ($acct.PSObject.Properties['launcherPath']) { $acct.launcherPath } else { '' }
+		$list += [PSCustomObject]@{
+			username         = $acct.username
+			password         = $acct.password
+			client           = $acct.client
+			profile          = $profileVal
+			launcherPath     = $launcherVal
+			IsCurrentAccount = $false
+		}
+	}
+
+	return $list
 }
 
 function New-EDMultiAccounts {
@@ -190,12 +274,32 @@ function Resolve-AccountSelection {
 
 function Select-Accounts([array]$accounts) {
 	Write-Verbose ("Select-Accounts invoked; accounts.Count = {0}" -f $accounts.Count)
-	Write-Host "Available accounts:"
-	for ($i = 0; $i -lt $accounts.Count; $i++) {
-		$a = $accounts[$i]
-		# show profile for frontier accounts if present
+	$hasCurrent = $false
+	if ($accounts.Count -gt 0 -and $accounts[0].PSObject.Properties['IsCurrentAccount']) {
+		$hasCurrent = [bool]$accounts[0].IsCurrentAccount
+	}
+
+	Write-Host "Current account:"
+	if ($hasCurrent) {
+		$a = $accounts[0]
 		$profileInfo = if ($a.profile) { " profile:`"$($a.profile)`"" } else { "" }
-		Write-Host ("[{0}] {1} ({2}{3})" -f ($i + 1), $a.username, $a.client, $profileInfo)
+		Write-Host ("[1] {0} ({1}{2})" -f $a.username, $a.client, $profileInfo)
+	}
+	else {
+		Write-Host " (not configured)"
+	}
+
+	Write-Host "Stored accounts:"
+	$startIdx = if ($hasCurrent) { 1 } else { 0 }
+	if ($accounts.Count -le $startIdx) {
+		Write-Host " (none)"
+	}
+	else {
+		for ($i = $startIdx; $i -lt $accounts.Count; $i++) {
+			$a = $accounts[$i]
+			$profileInfo = if ($a.profile) { " profile:`"$($a.profile)`"" } else { "" }
+			Write-Host ("[{0}] {1} ({2}{3})" -f ($i + 1), $a.username, $a.client, $profileInfo)
+		}
 	}
 
 	while ($true) {
@@ -229,16 +333,26 @@ function Start-EDLaunchForAccount($account, [ref]$globalKnownPids) {
 	$profileVal = if ($account.PSObject.Properties['profile']) { $account.profile } else { '' }
 	Write-Verbose ("Account details: username={0}, client={1}, profile='{2}'" -f $account.username, $account.client, $profileVal)
 
-	# convert stored encrypted password back to SecureString (DPAPI)
-	try {
-		$securePass = ConvertTo-SecureString $account.password
-		Write-Verbose "Password conversion: success (SecureString obtained)."
+	$isCurrent = $false
+	if ($account.PSObject.Properties['IsCurrentAccount']) {
+		$isCurrent = [bool]$account.IsCurrentAccount
 	}
- catch {
-		Write-Warning "Failed to convert stored password for $($account.username). Skipping."
-		return $null
+	Write-Verbose ("IsCurrentAccount: {0}" -f $isCurrent)
+
+	$pscred = $null
+	$securePass = $null
+	if (-not $isCurrent) {
+		# convert stored encrypted password back to SecureString (DPAPI)
+		try {
+			$securePass = ConvertTo-SecureString $account.password
+			Write-Verbose "Password conversion: success (SecureString obtained)."
+		}
+	 catch {
+			Write-Warning "Failed to convert stored password for $($account.username). Skipping."
+			return $null
+		}
+		$pscred = New-Object System.Management.Automation.PSCredential($account.username, $securePass)
 	}
-	$pscred = New-Object System.Management.Automation.PSCredential($account.username, $securePass)
 
 	# --- Frontier launcher support ---
 	if ($account.client -eq 'frontier') {
@@ -301,65 +415,80 @@ function Start-EDLaunchForAccount($account, [ref]$globalKnownPids) {
 		Write-Verbose ("Launcher args array: {0}" -f ($arglist -join '; '))
 		Write-Verbose ("Will start Frontier with args: {0}" -f ($arglist -join ' '))
 
-		# Prefer Start-Process -Credential (consistent with Steam handling)
-		try {
-			Write-Verbose "Attempting Start-Process -Credential for Frontier launcher..."
-			$launcherProc = Start-Process -FilePath $launcherPath `
-				-ArgumentList $arglist `
-				-Credential $pscred `
-				-WorkingDirectory $wd `
-				-PassThru -ErrorAction Stop
-			Write-Verbose ("Start-Process -Credential succeeded for Frontier launcher (PID: {0})." -f $launcherProc.Id)
-		}
-		catch {
-			$errMsg = $_.Exception.Message -or $_.Exception.ToString()
-			Write-Warning ("Start-Process -Credential failed for {0}: {1}" -f $account.username, $errMsg)
-
-			# If access denied or similar, try ProcessStartInfo fallback (like Steam branch)
-			Write-Verbose "Attempting ProcessStartInfo fallback for Frontier launcher..."
+		if ($isCurrent) {
 			try {
-				$psi = New-Object System.Diagnostics.ProcessStartInfo
-				$psi.FileName = $launcherPath
-				$psi.Arguments = ($arglist -join ' ')
-				$psi.WorkingDirectory = $wd
-				$psi.UseShellExecute = $false
-				$psi.UserName = $account.username
-				$psi.Password = $securePass
-				$psi.LoadUserProfile = $true
-				# debug: show prepared ProcessStartInfo properties (after assignment)
-				Write-Verbose ("ProcessStartInfo prepared: FileName={0}, Arguments={1}, WorkingDirectory={2}, UseShellExecute={3}, UserName={4}, LoadUserProfile={5}" -f $psi.FileName, $psi.Arguments, $psi.WorkingDirectory, $psi.UseShellExecute, $psi.UserName, $psi.LoadUserProfile)
-
-				# Populate environment dictionary safely, if available on this runtime
-				$envTarget = $null
-				try { if ($null -ne $psi.EnvironmentVariables) { $envTarget = $psi.EnvironmentVariables } } catch {}
-				try { if ($null -eq $envTarget -and $null -ne $psi.Environment) { $envTarget = $psi.Environment } } catch {}
-				if ($null -ne $envTarget) {
-					Write-Verbose "ProcessStartInfo environment dictionary available; populating from current environment."
-					try { $envTarget.Clear() } catch {}
-					$added = @{ }
-					$currentEnv = [System.Environment]::GetEnvironmentVariables()
-					foreach ($k in $currentEnv.Keys) {
-						$kstr = [string]$k
-						$upper = $kstr.ToUpperInvariant()
-						if (-not $added.ContainsKey($upper)) {
-							try { $envTarget[$kstr] = $currentEnv[$k] } catch {}
-							$added[$upper] = $true
-						}
-					}
-				}
-				else {
-					Write-Verbose "ProcessStartInfo environment dictionary not available; skipping environment sanitization."
-				}
-
-				$launcherProc = [System.Diagnostics.Process]::Start($psi)
-				if (-not $launcherProc) { throw "ProcessStartInfo start returned null" }
-				Write-Verbose ("ProcessStartInfo fallback succeeded for Frontier launcher (PID: {0})." -f $launcherProc.Id)
+				$launcherProc = Start-Process -FilePath $launcherPath `
+					-ArgumentList $arglist `
+					-WorkingDirectory $wd `
+					-PassThru -ErrorAction Stop
+				Write-Verbose ("Start-Process succeeded for current account (PID: {0})." -f $launcherProc.Id)
 			}
 			catch {
-				$fbMsg = $_.Exception.Message -or $_.Exception.ToString()
-				Write-Warning ("Fallback ProcessStartInfo start failed for {0}: {1}" -f $account.username, $fbMsg)
-				Write-Warning "Common causes: insufficient privileges to start interactive process as another user, UAC, or Windows policies. Try running the script elevated or create a per-account scheduled task that runs MinEdLauncher under the target account."
+				Write-Warning ("Failed to start Frontier launcher for current account: {0}" -f ($_.Exception.Message))
 				return $null
+			}
+		}
+		else {
+			# Prefer Start-Process -Credential (consistent with Steam handling)
+			try {
+				Write-Verbose "Attempting Start-Process -Credential for Frontier launcher..."
+				$launcherProc = Start-Process -FilePath $launcherPath `
+					-ArgumentList $arglist `
+					-Credential $pscred `
+					-WorkingDirectory $wd `
+					-PassThru -ErrorAction Stop
+				Write-Verbose ("Start-Process -Credential succeeded for Frontier launcher (PID: {0})." -f $launcherProc.Id)
+			}
+			catch {
+				$errMsg = $_.Exception.Message -or $_.Exception.ToString()
+				Write-Warning ("Start-Process -Credential failed for {0}: {1}" -f $account.username, $errMsg)
+
+				# If access denied or similar, try ProcessStartInfo fallback (like Steam branch)
+				Write-Verbose "Attempting ProcessStartInfo fallback for Frontier launcher..."
+				try {
+					$psi = New-Object System.Diagnostics.ProcessStartInfo
+					$psi.FileName = $launcherPath
+					$psi.Arguments = ($arglist -join ' ')
+					$psi.WorkingDirectory = $wd
+					$psi.UseShellExecute = $false
+					$psi.UserName = $account.username
+					$psi.Password = $securePass
+					$psi.LoadUserProfile = $true
+					# debug: show prepared ProcessStartInfo properties (after assignment)
+					Write-Verbose ("ProcessStartInfo prepared: FileName={0}, Arguments={1}, WorkingDirectory={2}, UseShellExecute={3}, UserName={4}, LoadUserProfile={5}" -f $psi.FileName, $psi.Arguments, $psi.WorkingDirectory, $psi.UseShellExecute, $psi.UserName, $psi.LoadUserProfile)
+
+					# Populate environment dictionary safely, if available on this runtime
+					$envTarget = $null
+					try { if ($null -ne $psi.EnvironmentVariables) { $envTarget = $psi.EnvironmentVariables } } catch {}
+					try { if ($null -eq $envTarget -and $null -ne $psi.Environment) { $envTarget = $psi.Environment } } catch {}
+					if ($null -ne $envTarget) {
+						Write-Verbose "ProcessStartInfo environment dictionary available; populating from current environment."
+						try { $envTarget.Clear() } catch {}
+						$added = @{ }
+						$currentEnv = [System.Environment]::GetEnvironmentVariables()
+						foreach ($k in $currentEnv.Keys) {
+							$kstr = [string]$k
+							$upper = $kstr.ToUpperInvariant()
+							if (-not $added.ContainsKey($upper)) {
+								try { $envTarget[$kstr] = $currentEnv[$k] } catch {}
+								$added[$upper] = $true
+							}
+						}
+					}
+					else {
+						Write-Verbose "ProcessStartInfo environment dictionary not available; skipping environment sanitization."
+					}
+
+					$launcherProc = [System.Diagnostics.Process]::Start($psi)
+					if (-not $launcherProc) { throw "ProcessStartInfo start returned null" }
+					Write-Verbose ("ProcessStartInfo fallback succeeded for Frontier launcher (PID: {0})." -f $launcherProc.Id)
+				}
+				catch {
+					$fbMsg = $_.Exception.Message -or $_.Exception.ToString()
+					Write-Warning ("Fallback ProcessStartInfo start failed for {0}: {1}" -f $account.username, $fbMsg)
+					Write-Warning "Common causes: insufficient privileges to start interactive process as another user, UAC, or Windows policies. Try running the script elevated or create a per-account scheduled task that runs MinEdLauncher under the target account."
+					return $null
+				}
 			}
 		}
 
@@ -388,66 +517,81 @@ function Start-EDLaunchForAccount($account, [ref]$globalKnownPids) {
 	Write-Host "Starting Steam as $($account.username)..."
 	Write-Verbose ("Attempting Start-Process -Credential for Steam: FilePath={0}, Args={1}, WorkingDir={2}" -f $steamPath, $steamArgs, "C:\Program Files (x86)\Steam")
 
-	# First try the simple Start-Process -Credential path
-	try {
-		$steamArgs = '-silent -gameidlaunch 359320'
-		$steamProc = Start-Process -FilePath $steamPath `
-			-ArgumentList @('-silent', '-gameidlaunch', '359320') `
-			-Credential $pscred `
-			-WorkingDirectory "C:\Program Files (x86)\Steam" `
-			-PassThru -ErrorAction Stop
-		Write-Verbose "Start-Process -Credential succeeded for $($account.username) (PID: $($steamProc.Id))."
+	if ($isCurrent) {
+		try {
+			$steamProc = Start-Process -FilePath $steamPath `
+				-ArgumentList @('-silent', '-gameidlaunch', '359320') `
+				-WorkingDirectory "C:\Program Files (x86)\Steam" `
+				-PassThru -ErrorAction Stop
+			Write-Verbose "Started Steam using current Windows account (no stored credentials)."
+		}
+		catch {
+			Write-Warning "Failed to start Steam for current account: $($_.Exception.Message)"
+			return $null
+		}
 	}
- catch {
-		$errMsg = $_.Exception.Message -or $_.Exception.ToString()
-		# If error matches the duplicate-environment-key problem, attempt a fallback using ProcessStartInfo
-		if ($errMsg -match 'Item has already been added' -or $errMsg -match 'WINDIR' -or $errMsg -match 'windir') {
-			Write-Verbose "Duplicate environment-key error detected, using fallback ProcessStartInfo start for $($account.username)..."
-			try {
-				Write-Verbose ("Preparing ProcessStartInfo: FileName={0}, Arguments={1}, WorkingDirectory={2}" -f $steamPath, '-silent -gameidlaunch 359320', "C:\Program Files (x86)\Steam")
-				$psi = New-Object System.Diagnostics.ProcessStartInfo
-				$psi.FileName = $steamPath
-				$psi.Arguments = '-silent -gameidlaunch 359320'
-				$psi.WorkingDirectory = "C:\Program Files (x86)\Steam"
-				$psi.UseShellExecute = $false
-				$psi.UserName = $account.username
-				$psi.Password = $securePass
-				$psi.LoadUserProfile = $true
+	else {
+		# First try the simple Start-Process -Credential path
+		try {
+			$steamArgs = '-silent -gameidlaunch 359320'
+			$steamProc = Start-Process -FilePath $steamPath `
+				-ArgumentList @('-silent', '-gameidlaunch', '359320') `
+				-Credential $pscred `
+				-WorkingDirectory "C:\Program Files (x86)\Steam" `
+				-PassThru -ErrorAction Stop
+			Write-Verbose "Start-Process -Credential succeeded for $($account.username) (PID: $($steamProc.Id))."
+		}
+		catch {
+			$errMsg = $_.Exception.Message -or $_.Exception.ToString()
+			# If error matches the duplicate-environment-key problem, attempt a fallback using ProcessStartInfo
+			if ($errMsg -match 'Item has already been added' -or $errMsg -match 'WINDIR' -or $errMsg -match 'windir') {
+				Write-Verbose "Duplicate environment-key error detected, using fallback ProcessStartInfo start for $($account.username)..."
+				ry {
+					Write-Verbose ("Preparing ProcessStartInfo: FileName={0}, Arguments={1}, WorkingDirectory={2}" -f $steamPath, '-silent -gameidlaunch 359320', "C:\Program Files (x86)\Steam")
+					$psi = New-Object System.Diagnostics.ProcessStartInfo
+					$psi.FileName = $steamPath
+					$psi.Arguments = '-silent -gameidlaunch 359320'
+					$psi.WorkingDirectory = "C:\Program Files (x86)\Steam"
+					$psi.UseShellExecute = $false
+					$psi.UserName = $account.username
+					$psi.Password = $securePass
+					$psi.LoadUserProfile = $true
 
-				# Robustly find the environment dictionary on this runtime and populate it safely.
-				$envTarget = $null
-				try { if ($null -ne $psi.EnvironmentVariables) { $envTarget = $psi.EnvironmentVariables } } catch {}
-				try { if ($null -eq $envTarget -and $null -ne $psi.Environment) { $envTarget = $psi.Environment } } catch {}
+					# Robustly find the environment dictionary on this runtime and populate it safely.
+					$envTarget = $null
+					try { if ($null -ne $psi.EnvironmentVariables) { $envTarget = $psi.EnvironmentVariables } } catch {}
+					try { if ($null -eq $envTarget -and $null -ne $psi.Environment) { $envTarget = $psi.Environment } } catch {}
 
-				if ($null -ne $envTarget) {
-					try { $envTarget.Clear() } catch {}
-					$added = @{ }
-					$currentEnv = [System.Environment]::GetEnvironmentVariables()
-					foreach ($k in $currentEnv.Keys) {
-						$kstr = [string]$k
-						$upper = $kstr.ToUpperInvariant()
-						if (-not $added.ContainsKey($upper)) {
-							try { $envTarget[$kstr] = $currentEnv[$k] } catch {}
-							$added[$upper] = $true
+					if ($null -ne $envTarget) {
+						try { $envTarget.Clear() } catch {}
+						$added = @{ }
+						$currentEnv = [System.Environment]::GetEnvironmentVariables()
+						foreach ($k in $currentEnv.Keys) {
+							$kstr = [string]$k
+							$upper = $kstr.ToUpperInvariant()
+							if (-not $added.ContainsKey($upper)) {
+								try { $envTarget[$kstr] = $currentEnv[$k] } catch {}
+								$added[$upper] = $true
+							}
 						}
 					}
-				}
-				else {
-					Write-Verbose "ProcessStartInfo environment dictionary not available on this runtime; skipping environment sanitization."
-				}
+					else {
+						Write-Verbose "ProcessStartInfo environment dictionary not available on this runtime; skipping environment sanitization."
+					}
 
-				$steamProc = [System.Diagnostics.Process]::Start($psi)
-				if (-not $steamProc) { throw "ProcessStartInfo start returned null" }
-				Write-Verbose ("ProcessStartInfo fallback succeeded for {0} (PID: {1})" -f $account.username, $steamProc.Id)
+					$steamProc = [System.Diagnostics.Process]::Start($psi)
+					if (-not $steamProc) { throw "ProcessStartInfo start returned null" }
+					Write-Verbose ("ProcessStartInfo fallback succeeded for {0} (PID: {1})" -f $account.username, $steamProc.Id)
+				}
+				catch {
+					Write-Warning "Fallback ProcessStartInfo start failed for $($account.username): $($_.Exception.Message)"
+					return $null
+				}
 			}
-			catch {
-				Write-Warning "Fallback ProcessStartInfo start failed for $($account.username): $($_.Exception.Message)"
+			else {
+				Write-Warning "Failed to start Steam for $($account.username): $errMsg"
 				return $null
 			}
-		}
-		else {
-			Write-Warning "Failed to start Steam for $($account.username): $errMsg"
-			return $null
 		}
 	}
 
@@ -495,6 +639,17 @@ function Edit-EDMultiCredentials {
 	while ($true) {
 		$accounts = Get-EDMultiCredentials
 		if (-not $accounts) { $accounts = @() }
+		$currentAccount = $script:CurrentAccountInfo
+
+		Write-Host "`nCurrent account:"
+		if ($currentAccount) {
+			$prof = if ($currentAccount.profile) { " profile=`"$($currentAccount.profile)`"" } else { "" }
+			$lp = if ($currentAccount.launcherPath) { ", launcherPath=`"$($currentAccount.launcherPath)`"" } else { "" }
+			Write-Host ("- {0} ({1}{2}{3})" -f ([System.Environment]::UserName), $currentAccount.client, $prof, $lp)
+		}
+		else {
+			Write-Host "- not configured"
+		}
 
 		Write-Host "`nStored accounts:"
 		for ($i = 0; $i -lt $accounts.Count; $i++) {
@@ -503,10 +658,15 @@ function Edit-EDMultiCredentials {
 			Write-Host ("[{0}] {1} ({2}{3})" -f ($i + 1), $a.username, $a.client, $prof)
 		}
 		Write-Host ""
-		$cmd = Read-Host "Command: (a)dd, (e)dit <number>, (r)emove <number>, (s)ave, (q)uit"
+		$cmd = Read-Host "Command: (c)urrent, (a)dd, (e)dit <number>, (r)emove <number>, (s)ave, (q)uit"
 		if ([string]::IsNullOrWhiteSpace($cmd)) { continue }
 		$parts = $cmd.Trim() -split '\s+'
 		switch ($parts[0].ToLower()) {
+			'c' {
+				$script:CurrentAccountInfo = Set-CurrentAccountMetadata -existing $script:CurrentAccountInfo
+				Save-EDMultiCredentials -accounts $accounts
+				Write-Host "Updated current account settings and saved."
+			}
 			'a' {
 				$u = Read-Host "Username (email / local username)"
 				if ([string]::IsNullOrWhiteSpace($u)) { Write-Warning "Username required."; continue }
@@ -629,6 +789,10 @@ function Edit-EDMultiCredentials {
 	}
 }
 
+
+# Initialize credential store after help check, before edit credentials
+Initialize-CredentialStore
+
 # If user requested only to edit credentials, do so and exit
 if ($EditCredentials) {
 	Edit-EDMultiCredentials
@@ -636,30 +800,55 @@ if ($EditCredentials) {
 }
 
 # --- main flow ---
-Initialize-CredentialStore
 
 $accounts = Get-EDMultiCredentials
-if (-not $accounts -or $accounts.Count -eq 0) {
-	$accounts = New-EDMultiAccounts
-	if (-not $accounts -or $accounts.Count -eq 0) {
-		Write-Error "No accounts configured. Exiting."
-		exit 1
+if (-not $accounts) { $accounts = @() }
+else { $accounts = @($accounts) }
+
+$currentAccount = $script:CurrentAccountInfo
+if (-not $currentAccount) {
+	$resp = Read-Host "Configure launch settings for the current Windows account? (Y/n)"
+	if ([string]::IsNullOrWhiteSpace($resp) -or $resp -notmatch '^[nN]') {
+		$script:CurrentAccountInfo = Set-CurrentAccountMetadata -existing $null
+		$currentAccount = $script:CurrentAccountInfo
+		Save-EDMultiCredentials -accounts $accounts
 	}
 }
-# >>> Ensure array <<<
-$accounts = @($accounts)
+
+if (-not $accounts -or $accounts.Count -eq 0) {
+	$createStored = $true
+	if ($script:CurrentAccountInfo) {
+		$resp = Read-Host "Add stored Windows accounts? (y/N)"
+		$createStored = ([string]::IsNullOrWhiteSpace($resp) -eq $false -and $resp -match '^[yY]')
+	}
+	if ($createStored) {
+		$accounts = New-EDMultiAccounts
+	}
+	if (-not $accounts) { $accounts = @() }
+}
+
+if ((-not $script:CurrentAccountInfo) -and ($accounts.Count -eq 0)) {
+	Write-Error "No accounts configured. Exiting."
+	exit 1
+}
+
+$availableAccounts = Get-AvailableAccounts -currentAccount $script:CurrentAccountInfo -storedAccounts $accounts
+if (-not $availableAccounts -or $availableAccounts.Count -eq 0) {
+	Write-Error "No accounts available to launch. Exiting."
+	exit 1
+}
 
 $selectedIdx = $null
 if ($PSBoundParameters.ContainsKey('Launch')) {
 	Write-Verbose ("-Launch parameter specified: '{0}'" -f $Launch)
-	$selectedIdx = Resolve-AccountSelection -SelectionText $Launch -Accounts $accounts
+	$selectedIdx = Resolve-AccountSelection -SelectionText $Launch -Accounts $availableAccounts
 	if ($null -eq $selectedIdx -or $selectedIdx.Count -eq 0) {
 		Write-Error "Could not parse -Launch selection. Use values like 'all', '1', '1,3', or '2-4'."
 		exit 1
 	}
 }
 else {
-	$selectedIdx = Select-Accounts -accounts $accounts
+	$selectedIdx = Select-Accounts -accounts $availableAccounts
 }
 
 $selectedIdx = @($selectedIdx)   # ensure array semantics even if single value
@@ -670,8 +859,10 @@ if ($null -eq $selectedIdx -or $selectedIdx.Count -eq 0) {
 }
 
 # small launch-time diagnostic: show which credential will be used before starting
+$selectedAccounts = @()
 foreach ($i in $selectedIdx) {
-	$acc = $accounts[$i]
+	$acc = $availableAccounts[$i]
+	$selectedAccounts += $acc
 	Write-Verbose ("About to launch for index {0} -> username: {1}, client: {2}" -f $i, $acc.username, $acc.client)
 }
 
@@ -682,8 +873,7 @@ if (-not $existingPids) { $existingPids = @() }
 $knownPidsRef = [ref]$existingPids
 
 $results = @()
-foreach ($i in $selectedIdx) {
-	$acc = $accounts[$i]
+foreach ($acc in $selectedAccounts) {
 	$edPid = Start-EDLaunchForAccount -account $acc -globalKnownPids $knownPidsRef
 	$results += [PSCustomObject]@{ username = $acc.username; client = $acc.client; edpid = $edPid }
 }
